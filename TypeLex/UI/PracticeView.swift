@@ -13,66 +13,87 @@ struct PracticeView: View {
     // MARK: - Body
     
     var body: some View {
-        ZStack {
-            // 背景
-            AppTheme.Colors.backgroundGradient
-                .ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                // 1. 頂部工具列
-                TopToolbarView(
-                    currentBookName: vm.repository.currentBookName,
-                    activeSheet: $activeSheet
-                )
+        GeometryReader { geometry in
+            ZStack {
+                // 背景
+                AppTheme.Colors.backgroundGradient
+                    .ignoresSafeArea()
                 
-                Divider().frame(height: 16)
-                Spacer()
-                
-                // 2. 核心內容區
-                contentArea
-                
-                Spacer()
-                Divider().frame(height: 16)
-                
-                // 3. 底部狀態列
-                BottomStatusBarView(
-                    practiceMode: vm.practiceMode,
-                    isFavorite: vm.currentEntry.isFavorite,
-                    onCycleMode: { vm.cyclePracticeMode() },
-                    onToggleFavorite: { vm.toggleFavorite() },
-                    localPracticeMode: $vm.practiceMode
-                )
+                VStack(spacing: 0) {
+                    // 1. 頂部工具列
+                    TopToolbarView(
+                        currentBookName: vm.repository.currentBookName,
+                        activeSheet: $activeSheet
+                    )
+                    
+                    Divider().frame(height: 16)
+                    Spacer()
+                    
+                    // 2. 核心內容區 (Dynamic Scaling)
+                    // Use the smaller dimension to determine scale for better responsiveness
+                    let baseSize: CGFloat = 900.0
+                    let heightScale = geometry.size.height / baseSize
+                    let widthScale = geometry.size.width / 1200.0 // Assuming 1200 as ideal width
+                    let rawScale = min(heightScale, widthScale)
+                    // Allow scaling down to 0.55 for smaller screens
+                    let scale = min(1.0, max(0.55, rawScale))
+                    
+                    if vm.isEmptyState {
+                        WelcomeView(
+                            onLoadDefault: { vm.loadDefaultLibrary() },
+                            onImportCustom: { vm.importCustomLibrary() }
+                        )
+                    } else {
+                        PracticeCardView(
+                            vm: vm,
+                            showLargeImage: $showLargeImage,
+                            scale: scale
+                        )
+                    }
+                    
+                    Spacer()
+                    Divider().frame(height: 16)
+                    
+                    // 3. 底部狀態列
+                    BottomStatusBarView(
+                        practiceMode: vm.practiceMode,
+                        isFavorite: vm.currentEntry.isFavorite,
+                        onCycleMode: { vm.cyclePracticeMode() },
+                        onToggleFavorite: { vm.toggleFavorite() },
+                        localPracticeMode: $vm.practiceMode
+                    )
+                }
             }
-        }
-        .frame(minWidth: 1024, minHeight: 768)
-        .focusable()
-        .focused($isFocused)
-        .onAppear {
-            isFocused = true
-        }
-        .onKeyPress { press in
-            handleKeyPress(press)
-        }
-        .onTapGesture { isFocused = true }
-        .sheet(item: $activeSheet, onDismiss: { vm.refreshQueue() }) { destination in
-            switch destination {
-            case .importLibrary:
-                ImportView(repository: vm.repository)
-            case .wordList:
-                WordListView(repository: vm.repository)
-            case .settings:
-                SettingsView(repository: vm.repository)
-            case .bookManager:
-                BookManagerView(repository: vm.repository)
+            .frame(minWidth: 900, minHeight: 600)
+            .focusable()
+            .focused($isFocused)
+            .onAppear {
+                isFocused = true
             }
-        }
-        .alert("Notice", isPresented: $vm.showAlert) {
-            Button("OK") {}
-        } message: {
-            Text(vm.alertMessage ?? "")
-        }
-        .overlay {
-            imageOverlay
+            .onKeyPress { press in
+                handleKeyPress(press)
+            }
+            .onTapGesture { isFocused = true }
+            .sheet(item: $activeSheet, onDismiss: { vm.refreshQueue() }) { destination in
+                switch destination {
+                case .importLibrary:
+                    ImportView(repository: vm.repository)
+                case .wordList:
+                    WordListView(repository: vm.repository)
+                case .settings:
+                    SettingsView(repository: vm.repository)
+                case .bookManager:
+                    BookManagerView(repository: vm.repository)
+                }
+            }
+            .alert("Notice", isPresented: $vm.showAlert) {
+                Button("OK") {}
+            } message: {
+                Text(vm.alertMessage ?? "")
+            }
+            .overlay {
+                imageOverlay
+            }
         }
     }
 }
@@ -80,21 +101,6 @@ struct PracticeView: View {
 // MARK: - Subviews
 
 private extension PracticeView {
-    @ViewBuilder
-    var contentArea: some View {
-        if vm.isEmptyState {
-            WelcomeView(
-                onLoadDefault: { vm.loadDefaultLibrary() },
-                onImportCustom: { vm.importCustomLibrary() }
-            )
-        } else {
-            PracticeCardView(
-                vm: vm,
-                showLargeImage: $showLargeImage
-            )
-        }
-    }
-    
     @ViewBuilder
     var imageOverlay: some View {
         if showLargeImage {

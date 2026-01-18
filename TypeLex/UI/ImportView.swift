@@ -146,13 +146,28 @@ private extension ImportView {
         
         panel.begin { response in
             if response == .OK, let url = panel.url {
-                do {
-                    try repository.changeStorageLocation(to: url)
-                    alertMessage = "Successfully moved data to new location."
-                } catch {
-                    alertMessage = "Failed to move data: \(error.localizedDescription)"
+                // Update UI to show processing state
+                self.isProcessing = true
+                self.progressMessage = "Moving data to new location..."
+                
+                // Perform file operations in background to avoid blocking UI
+                Task.detached(priority: .userInitiated) {
+                    do {
+                        try self.repository.changeStorageLocation(to: url)
+                        
+                        await MainActor.run {
+                            self.alertMessage = "Successfully moved data to new location."
+                            self.showAlert = true
+                            self.isProcessing = false
+                        }
+                    } catch {
+                        await MainActor.run {
+                            self.alertMessage = "Failed to move data: \(error.localizedDescription)"
+                            self.showAlert = true
+                            self.isProcessing = false
+                        }
+                    }
                 }
-                showAlert = true
             }
         }
     }

@@ -16,9 +16,12 @@ class WordRepository {
     private let bookmarkKey = "customStorageBookmark"
     private var customStorageURL: URL?
     
-    /// 目前的儲存根目錄 (預設為 App Container 的 Documents)
+    /// 目前的儲存根目錄 (預設為 ~/Downloads/TypeLexLibrary)
     var storageDirectory: URL {
-        customStorageURL ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        if let custom = customStorageURL { return custom }
+        
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        return downloads.appendingPathComponent("TypeLexLibrary")
     }
     
     /// 目前單詞本的資料夾路徑 (例如 Documents/Default/)
@@ -248,17 +251,37 @@ class WordRepository {
     
     private func moveAllContent(from source: URL, to destination: URL) throws {
         let fileManager = FileManager.default
-        let files = try fileManager.contentsOfDirectory(at: source, includingPropertiesForKeys: nil)
+        
+        // 確保目標資料夾存在
+        if !fileManager.fileExists(atPath: destination.path) {
+            try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+        }
+        
+        // 為了避免移動到非 App 相關的檔案，我們只移動符合單詞本結構的資料夾。
+        let files = try fileManager.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)
         
         for file in files {
-            let fileName = file.lastPathComponent
-            let targetURL = destination.appendingPathComponent(fileName)
-            
-            // 簡單搬移，若目標存在則移除舊的
-            if fileManager.fileExists(atPath: targetURL.path) {
-                try? fileManager.removeItem(at: targetURL)
+            // 檢查是否為資料夾
+            var isDir: ObjCBool = false
+            guard fileManager.fileExists(atPath: file.path, isDirectory: &isDir), isDir.boolValue else {
+                continue
             }
-            try fileManager.moveItem(at: file, to: targetURL)
+            
+            let name = file.lastPathComponent
+            // 檢查是否包含同名 csv (e.g., Default/Default.csv)
+            let csvPath = file.appendingPathComponent("\(name).\(extensionName)")
+            
+            if fileManager.fileExists(atPath: csvPath.path) {
+                let targetURL = destination.appendingPathComponent(name)
+                
+                print("🚚 Moving book found: \(name) from \(file.path) to \(targetURL.path)")
+                
+                // 如果目標已存在，先移除舊的以確保移動成功
+                if fileManager.fileExists(atPath: targetURL.path) {
+                    try fileManager.removeItem(at: targetURL)
+                }
+                try fileManager.moveItem(at: file, to: targetURL)
+            }
         }
     }
     

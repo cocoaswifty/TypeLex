@@ -6,6 +6,7 @@ struct TypingDisplayView: View {
     let remainingSuffix: String
     let isFinished: Bool
     let lastInputWasError: Bool
+    var scale: CGFloat = 1.0
     
     // Actions
     let onSpeak: () -> Void
@@ -22,10 +23,10 @@ struct TypingDisplayView: View {
                         .background(lastInputWasError ? AppTheme.Colors.error : Color.clear)
                         .overlay(
                             Rectangle()
-                                .frame(height: 3)
+                                .frame(height: 3 * scale)
                                 .foregroundColor(AppTheme.Colors.primary)
-                                .offset(y: 6)
-                                .shadow(color: AppTheme.Shadows.glow, radius: 4),
+                                .offset(y: 6 * scale)
+                                .shadow(color: AppTheme.Shadows.glow, radius: 4 * scale),
                             alignment: .bottom
                         )
                     
@@ -34,9 +35,9 @@ struct TypingDisplayView: View {
                 }
             }
         }
-        .font(.system(size: 80, weight: .regular, design: .serif))
+        .font(.system(size: 80 * scale, weight: .regular, design: .serif))
         .monospaced()
-        .padding(.vertical, 4)
+        .padding(.vertical, 4 * scale)
         .onTapGesture(perform: onSpeak)
         .pointingCursor()
     }

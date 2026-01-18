@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var stabilityKey: String = ""
     @State private var isGeminiSaved: Bool = false
     @State private var isStabilitySaved: Bool = false
+    @State private var isCacheCleared: Bool = false
     
     var body: some View {
         VStack(spacing: 20) {
@@ -17,6 +18,7 @@ struct SettingsView: View {
             
             geminiSection
             stabilitySection
+            maintenanceSection
             
             actionsSection
         }
@@ -31,6 +33,33 @@ struct SettingsView: View {
 // MARK: - Subviews
 
 private extension SettingsView {
+    var maintenanceSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Maintenance")
+                .font(.headline)
+            
+            Text("Clear temporary files and network caches. Useful if you experience issues.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            HStack {
+                Button("Clear App Cache") {
+                    clearAppCache()
+                }
+                
+                if isCacheCleared {
+                    Text("✅ Cache Cleared. Please restart.")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                        .transition(.opacity)
+                }
+            }
+        }
+        .padding()
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(8)
+    }
+    
     var geminiSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Google Gemini API Key")
@@ -150,6 +179,31 @@ private extension SettingsView {
         Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             withAnimation { isStabilitySaved = false }
+        }
+    }
+    
+    func clearAppCache() {
+        // 1. Clear URL Cache
+        URLCache.shared.removeAllCachedResponses()
+        
+        // 2. Clear Temporary Directory (safely)
+        let fileManager = FileManager.default
+        let tmpDir = fileManager.temporaryDirectory
+        
+        do {
+            let tmpFiles = try fileManager.contentsOfDirectory(at: tmpDir, includingPropertiesForKeys: nil)
+            for file in tmpFiles {
+                try? fileManager.removeItem(at: file)
+            }
+        } catch {
+            print("⚠️ Failed to list temp files: \(error)")
+        }
+        
+        withAnimation { isCacheCleared = true }
+        
+        Task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            withAnimation { isCacheCleared = false }
         }
     }
 }
