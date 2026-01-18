@@ -10,6 +10,9 @@ struct PracticeView: View {
     @State private var activeSheet: SheetDestination?
     @State private var showLargeImage = false
     
+    // User UI scale preference (synced with SettingsView)
+    @AppStorage("userUIScale") private var userUIScale: Double = 1.0
+    
     // MARK: - Body
     
     var body: some View {
@@ -30,13 +33,14 @@ struct PracticeView: View {
                     Spacer()
                     
                     // 2. 核心內容區 (Dynamic Scaling)
-                    // Use the smaller dimension to determine scale for better responsiveness
+                    // Combine auto-calculated scale with user preference
                     let baseSize: CGFloat = 900.0
                     let heightScale = geometry.size.height / baseSize
-                    let widthScale = geometry.size.width / 1200.0 // Assuming 1200 as ideal width
+                    let widthScale = geometry.size.width / 1200.0
                     let rawScale = min(heightScale, widthScale)
-                    // Allow scaling down to 0.55 for smaller screens
-                    let scale = min(1.0, max(0.55, rawScale))
+                    let autoScale = min(1.0, max(0.55, rawScale))
+                    // Apply user preference: userUIScale of 1.0 = 100%, 0.7 = 70%, 1.3 = 130%
+                    let scale = autoScale * CGFloat(userUIScale)
                     
                     if vm.isEmptyState {
                         WelcomeView(

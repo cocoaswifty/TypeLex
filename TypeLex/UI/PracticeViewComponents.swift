@@ -25,9 +25,9 @@ struct TopToolbarView: View {
                         .fontWeight(.medium)
                         .lineLimit(1)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.ultraThinMaterial, in: Capsule())
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(Color.primary.opacity(0.06)))
                 .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 1))
             }
             .buttonStyle(IconicButtonStyle())
@@ -36,12 +36,12 @@ struct TopToolbarView: View {
             // 右側設定
             HStack(spacing: 24) {
                 Spacer()
-                Divider().frame(height: 20)
                 ToolbarIconButton(icon: "gearshape.fill", title: "Settings") { activeSheet = .settings }
             }
         }
-        .padding(.vertical, 16)
+        .padding(.vertical, 8)
         .padding(.horizontal, 24)
+        .frame(height: 44, alignment: .center)
     }
 }
 
@@ -97,7 +97,8 @@ struct BottomStatusBarView: View {
             .buttonStyle(PlainButtonStyle())
         }
         .padding(.horizontal, 40)
-        .padding(.bottom, 30)
+        .padding(.top, 16)
+        .padding(.bottom, 20)
     }
 }
 

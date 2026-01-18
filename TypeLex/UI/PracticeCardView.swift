@@ -111,7 +111,7 @@ private extension PracticeCardView {
     
     var exampleSection: some View {
         VStack(spacing: 16 * scale) {
-            Divider().frame(height: 16 * scale)
+            Divider().frame(height: 16 * scale).padding(.horizontal, 40)
 
             if let example = vm.currentEntry.example {
                 VStack(spacing: 4 * scale) {

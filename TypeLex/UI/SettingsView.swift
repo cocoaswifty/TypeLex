@@ -8,7 +8,9 @@ struct SettingsView: View {
     @State private var stabilityKey: String = ""
     @State private var isGeminiSaved: Bool = false
     @State private var isStabilitySaved: Bool = false
-    @State private var isCacheCleared: Bool = false
+    
+    // UI Scale setting (persisted)
+    @AppStorage("userUIScale") private var userUIScale: Double = 1.0
     
     var body: some View {
         VStack(spacing: 20) {
@@ -16,9 +18,9 @@ struct SettingsView: View {
                 .font(.title2)
                 .fontWeight(.bold)
             
+            uiScaleSection
             geminiSection
             stabilitySection
-            maintenanceSection
             
             actionsSection
         }
@@ -33,25 +35,43 @@ struct SettingsView: View {
 // MARK: - Subviews
 
 private extension SettingsView {
-    var maintenanceSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Maintenance")
+    var uiScaleSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Display")
                 .font(.headline)
             
-            Text("Clear temporary files and network caches. Useful if you experience issues.")
+            Text("Adjust overall UI text size. Useful for different screen sizes.")
                 .font(.caption)
                 .foregroundColor(.secondary)
             
-            HStack {
-                Button("Clear App Cache") {
-                    clearAppCache()
+            VStack(spacing: 8) {
+                HStack {
+                    Text("Smaller")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Slider(value: $userUIScale, in: 0.7...1.3, step: 0.05)
+                        .frame(maxWidth: .infinity)
+                    
+                    Text("Larger")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 
-                if isCacheCleared {
-                    Text("✅ Cache Cleared. Please restart.")
+                HStack {
+                    Text("Current: \(Int(userUIScale * 100))%")
                         .font(.caption)
-                        .foregroundColor(.green)
-                        .transition(.opacity)
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                    
+                    Spacer()
+                    
+                    Button("Reset") {
+                        withAnimation { userUIScale = 1.0 }
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .disabled(abs(userUIScale - 1.0) < 0.01)
                 }
             }
         }
@@ -181,29 +201,5 @@ private extension SettingsView {
             withAnimation { isStabilitySaved = false }
         }
     }
-    
-    func clearAppCache() {
-        // 1. Clear URL Cache
-        URLCache.shared.removeAllCachedResponses()
-        
-        // 2. Clear Temporary Directory (safely)
-        let fileManager = FileManager.default
-        let tmpDir = fileManager.temporaryDirectory
-        
-        do {
-            let tmpFiles = try fileManager.contentsOfDirectory(at: tmpDir, includingPropertiesForKeys: nil)
-            for file in tmpFiles {
-                try? fileManager.removeItem(at: file)
-            }
-        } catch {
-            print("⚠️ Failed to list temp files: \(error)")
-        }
-        
-        withAnimation { isCacheCleared = true }
-        
-        Task {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            withAnimation { isCacheCleared = false }
-        }
-    }
 }
+
