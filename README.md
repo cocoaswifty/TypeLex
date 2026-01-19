@@ -10,10 +10,10 @@ TypeLex 是一款專為 macOS 設計的極簡英文單字打字練習 App。它�
     *   **雙重發音回饋**：單字出現時自動連續發音兩次（間隔 0.3s），強化聽覺記憶；切換單字或點擊其他內容時會立即中斷當前發音，確保聽覺體驗乾淨不重疊。
     *   **即時視覺回饋**：輸入正確顯示高亮，錯誤時以柔和紅底提示，並搭配動畫效果。
 *   **AI 驅動與智慧內容**：
-    *   **深度釋義**：整合 **Gemini 2.5 Flash Lite**，自動生成精確的英文釋義、IPA 音標與情境例句。
+    *   **深度釋義**：整合 **Gemini 2.5 Flash Lite**，自動生成精確的英文釋義、IPA 音標與情境例句。支援 **Pollinations AI** 無縫備援，即使沒有 API Key 也能正常運作。
     *   **雙語對照**：特別優化的中文翻譯格式（如：「制止」某人...），幫助快速理解詞性與用法。
-    *   **意境圖生成**：整合 Pollinations.ai 生成莫蘭迪色系 (Morandi) 插圖，並支援**大圖預覽**模式。
-    *   **內容再生**：支援右鍵重新生成圖片或釋義，持續優化學習素材。
+    *   **意境圖生成**：預設使用 **Pollinations AI** 生成莫蘭迪色系 (Morandi) 插圖，並支援 **Stability AI (SDXL)** 作為高品質備援，確保生成穩定性。
+    *   **智慧偵錯與重試**：自動偵測 AI 生成限制（如 Rate Limit），並具備自動切換備援機制。
 
 *   **現代化學習介面**：
     *   **高效能架構**：採用 Swift Concurrency (`.task`) 進行圖片異步加載與資源管理，滑動切換單字流暢無卡頓。
@@ -54,13 +54,16 @@ Documents/
     *   **併發安全與單例服務**：採用 **Singleton 模式** 管理 `SpeechService`，確保全域音效輸出的互斥性；ViewModel 全面採用 `@MainActor` 標記，確保所有 UI 狀態更新均在主線程安全執行。
     *   **@Observable 驅動**：全面採用 macOS 14 導入的 Observation 框架，精確追蹤屬性依賴，實現微秒級的視圖局部更新。
     *   **TypingEngine 狀態機**：純 Swift 邏輯層，完全分離 UI 狀態與打字演算法，易於測試與維護。
-*   **AI 模型**：Gemini 2.5 Flash Lite (Text) + Pollinations AI (Image)
+*   **AI 模型**：
+    *   **Text**: Gemini 2.5 Flash Lite + Pollinations AI (Keyless Fallback)
+    *   **Image**: Pollinations AI + Stability AI SDXL (High-quality Fallback)
 *   **資料儲存**：高效能 CSV 讀寫，支援多單詞本切換與 Security-Scoped 儲存權限。
 
 ## 🚀 如何開始
 
-1.  **設定 API Key**：
-    *   點擊右上角 **⚙️ (Settings)**，輸入 Google Gemini API Key 並儲存。
+1.  **設定 API Key (選填)**：
+    *   點擊右上角 **⚙️ (Settings)**，輸入 Google Gemini 或 Stability AI 密鑰。
+    *   **註**：若不填入密鑰，系統會自動使用免費的 **Pollinations AI** 進行文字與圖片生成。
 
 2.  **載入單字庫**：
     *   初次使用可點擊 **Load @4000 Essential Words** 載入專案內建範例。

@@ -18,9 +18,7 @@ class GeminiService {
     }
     
     func generateWordData(word: String) async throws -> (WordEntry, Data?) {
-        guard let _ = apiKey else { throw GeminiError.missingApiKey }
-        
-        // 1. 生成文字資訊
+        // 1. 生成文字資訊 (Try Gemini -> Fallback to Pollinations)
         let info = try await fetchWordInfo(word: word)
         
         // 2. 生成圖片數據 (Delegate to ImageService)
@@ -75,11 +73,7 @@ class GeminiService {
     }
     
     internal func fetchWordInfo(word: String) async throws -> WordInfoJSON {
-        guard let key = apiKey else { throw GeminiError.missingApiKey }
-        
-        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(textModel):generateContent?key=\(key)"
-        guard let url = URL(string: urlString) else { throw GeminiError.invalidURL }
-        
+        // Shared Prompt Construction
         let prompt = """
         You are a dictionary assistant. Provide the details for the English word: "\(word)".
         Output ONLY valid JSON with no markdown formatting.
@@ -124,6 +118,28 @@ class GeminiService {
         }
         """
         
+        // 1. Try Gemini if Key is available
+        if let key = apiKey, !key.isEmpty {
+            do {
+                return try await fetchWithGemini(prompt: prompt, key: key)
+            } catch {
+                print("⚠️ Gemini Failed: \(error). Switching to Pollinations...")
+                // Fallthrough to Pollinations
+            }
+        } else {
+            print("ℹ️ No Gemini Key found. Using Pollinations AI...")
+        }
+        
+        // 2. Fallback to Pollinations
+        return try await fetchWithPollinations(prompt: prompt)
+    }
+    
+    // MARK: - Provider Implementations
+    
+    private func fetchWithGemini(prompt: String, key: String) async throws -> WordInfoJSON {
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(textModel):generateContent?key=\(key)"
+        guard let url = URL(string: urlString) else { throw GeminiError.invalidURL }
+        
         let body: [String: Any] = [
             "contents": [
                 ["parts": [["text": prompt]]]
@@ -135,7 +151,6 @@ class GeminiService {
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
-        // 使用重試機制執行請求
         let data = try await performRequestWithRetry(request: request)
         
         let geminiResp = try JSONDecoder().decode(GeminiResponse.self, from: data)
@@ -143,8 +158,52 @@ class GeminiService {
             throw GeminiError.noData
         }
         
-        // 清理 Markdown (如果有 ```json ... ```)
-        let cleanText = text.replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return try parseJSON(from: text)
+    }
+    
+    private func fetchWithPollinations(prompt: String) async throws -> WordInfoJSON {
+        // Endpoint: https://text.pollinations.ai/
+        guard let url = URL(string: "https://text.pollinations.ai/") else { throw GeminiError.invalidURL }
+        
+        // Pollinations Text API expects a 'messages' array similar to OpenAI
+        let body: [String: Any] = [
+            "messages": [
+                ["role": "system", "content": "You are a helpful dictionary assistant. Output only valid JSON."],
+                ["role": "user", "content": prompt]
+            ],
+            "model": "openai" // Optional, often defaults to a capable model
+        ]
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GeminiError.apiError("Pollinations: No Response")
+        }
+        
+        if httpResponse.statusCode != 200 {
+            let errorMsg = String(data: data, encoding: .utf8) ?? "Unknown"
+            throw GeminiError.apiError("Pollinations Error (\(httpResponse.statusCode)): \(errorMsg)")
+        }
+        
+        // Pollinations text API returns the raw content directly (or JSON if prompt requested it)
+        // Based on testing, it returns the content string directly.
+        // We treat the whole body as the "text" result.
+        let responseText = String(data: data, encoding: .utf8) ?? ""
+        
+        return try parseJSON(from: responseText)
+    }
+    
+    private func parseJSON(from text: String) throws -> WordInfoJSON {
+        // Clean Markdown (```json ... ```)
+        let cleanText = text
+            .replacingOccurrences(of: "```json", with: "")
+            .replacingOccurrences(of: "```", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         
         guard let jsonData = cleanText.data(using: .utf8) else { throw GeminiError.parsingError }
         return try JSONDecoder().decode(WordInfoJSON.self, from: jsonData)
