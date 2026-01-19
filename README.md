@@ -2,6 +2,8 @@
 
 TypeLex 是一款專為 macOS 設計的極簡英文單字打字練習 App。它結合了高效能的原生打字體驗、TTS 發音以及 AI 輔助生成的內容，提供沉浸式的學習環境。
 
+![TypeLex Screenshot](screenshot.png)
+
 ## ✨ 主要功能
 
 *   **極致效能打字體驗**：
