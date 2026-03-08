@@ -149,11 +149,11 @@ private extension ImportView {
                 // Update UI to show processing state
                 self.isProcessing = true
                 self.progressMessage = "Moving data to new location..."
+                let repository = self.repository
                 
-                // Perform file operations in background to avoid blocking UI
-                Task.detached(priority: .userInitiated) {
+                Task(priority: .userInitiated) {
                     do {
-                        try self.repository.changeStorageLocation(to: url)
+                        try repository.changeStorageLocation(to: url)
                         
                         await MainActor.run {
                             self.alertMessage = "Successfully moved data to new location."

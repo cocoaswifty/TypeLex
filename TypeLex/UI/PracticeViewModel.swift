@@ -21,6 +21,8 @@ enum PracticeMode: String, CaseIterable {
 @Observable
 @MainActor
 class PracticeViewModel {
+    private static let recentWordLimit = 3
+
     // MARK: - Properties
     
     var currentEntry: WordEntry
@@ -55,8 +57,7 @@ class PracticeViewModel {
             // Do NOT speak in empty state
         } else {
             self.isEmptyState = false
-            // Pick a random word to start, instead of the first one
-            let startWord = repository.words.randomElement() ?? repository.words.first!
+            let startWord = Self.selectNextWord(from: repository.words) ?? repository.words.first!
             self.currentEntry = startWord
             self.engine = TypingEngine(targetWord: startWord.word)
             
@@ -120,9 +121,9 @@ class PracticeViewModel {
         
         if !repository.words.isEmpty {
             if currentEntry.id == WordEntry.mock.id || currentEntry.id == "abandon" {
-                 if let first = repository.words.first {
-                     self.currentEntry = first
-                     self.engine.reset(newWord: first.word)
+                 if let next = Self.selectNextWord(from: repository.words) ?? repository.words.first {
+                     self.currentEntry = next
+                     self.engine.reset(newWord: next.word)
                      self.speakCurrentWord()
                  }
             } else if let lastAdded = repository.words.last, lastAdded.id != currentEntry.id {
@@ -331,9 +332,7 @@ class PracticeViewModel {
     // MARK: - Private Logic
     
     private func finishCurrentWord() {
-        if engine.errorCount > 0 {
-            repository.recordMistake(for: currentEntry.id, count: engine.errorCount)
-        }
+        repository.recordPracticeResult(for: currentEntry.id, errorCount: engine.errorCount)
         
         guard !isTransitioning else { return }
         isTransitioning = true
@@ -371,17 +370,49 @@ class PracticeViewModel {
             }
             return
         }
-        
-        var next = pool.randomElement()!
-        
-        if pool.count > 1 {
-            while next.id == currentEntry.id {
-                next = pool.randomElement()!
-            }
-        }
+
+        let recentIDs = Set(history.suffix(Self.recentWordLimit).map(\.id)).union([currentEntry.id])
+        let next = Self.selectNextWord(from: pool, excludingIDs: recentIDs)
+            ?? Self.selectNextWord(from: pool)
+            ?? currentEntry
         
         self.currentEntry = next
         self.engine.reset(newWord: next.word)
         speakCurrentWord(count: 2)
+    }
+
+    private static func selectNextWord(
+        from pool: [WordEntry],
+        excludingIDs: Set<String> = [],
+        now: Date = Date()
+    ) -> WordEntry? {
+        guard !pool.isEmpty else { return nil }
+
+        let filteredPool = pool.filter { !excludingIDs.contains($0.id) }
+        let candidates = filteredPool.isEmpty ? pool : filteredPool
+
+        let reviewedDueWords = candidates
+            .filter { isDue($0, now: now) && $0.nextReviewAt != nil }
+            .sorted { ($0.nextReviewAt ?? .distantFuture) < ($1.nextReviewAt ?? .distantFuture) }
+
+        if let overdue = reviewedDueWords.first {
+            return overdue
+        }
+
+        let newWords = candidates.filter { $0.nextReviewAt == nil }
+        if let unseen = newWords.randomElement() {
+            return unseen
+        }
+
+        let upcomingWords = candidates
+            .filter { $0.nextReviewAt != nil }
+            .sorted { ($0.nextReviewAt ?? .distantFuture) < ($1.nextReviewAt ?? .distantFuture) }
+
+        return upcomingWords.first ?? candidates.randomElement()
+    }
+
+    private static func isDue(_ word: WordEntry, now: Date) -> Bool {
+        guard let nextReviewAt = word.nextReviewAt else { return true }
+        return nextReviewAt <= now
     }
 }

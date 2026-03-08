@@ -1,5 +1,6 @@
 import AVFoundation
 
+@MainActor
 final class SpeechService {
     static let shared = SpeechService()
     
@@ -28,6 +29,7 @@ final class SpeechService {
         stop()
         do {
             player = try AVAudioPlayer(contentsOf: url)
+            player?.prepareToPlay()
             player?.play()
         } catch {
             print("❌ Failed to play audio at \(url): \(error)")

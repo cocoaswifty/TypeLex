@@ -2,7 +2,8 @@ import Foundation
 import SwiftUI // For possible Image usage if needed, but Foundation is enough for logic
 
 struct CSVHelper {
-    static let header = "word,phonetic,translation,meaning,meaningTranslation,example,exampleTranslation,imageName,localImagePath,soundPath,soundMeaningPath,soundExamplePath,isFavorite,mistakeCount"
+    static let header = "word,phonetic,translation,meaning,meaningTranslation,example,exampleTranslation,imageName,localImagePath,soundPath,soundMeaningPath,soundExamplePath,isFavorite,mistakeCount,reviewStage,lastReviewedAt,nextReviewAt"
+    private static let dateFormatter = ISO8601DateFormatter()
     
     static func encode(_ words: [WordEntry]) -> String {
         var result = header + "\n"
@@ -21,7 +22,10 @@ struct CSVHelper {
                 escape(word.soundMeaningPath ?? ""),
                 escape(word.soundExamplePath ?? ""),
                 word.isFavorite ? "true" : "false",
-                "\(word.mistakeCount ?? 0)"
+                "\(word.mistakeCount ?? 0)",
+                "\(word.reviewStage ?? 0)",
+                escape(formatDate(word.lastReviewedAt)),
+                escape(formatDate(word.nextReviewAt))
             ].joined(separator: ",")
             result += row + "\n"
         }
@@ -76,11 +80,24 @@ struct CSVHelper {
                 soundMeaningPath: val("soundMeaningPath").isEmpty ? nil : val("soundMeaningPath"),
                 soundExamplePath: val("soundExamplePath").isEmpty ? nil : val("soundExamplePath"),
                 isFavorite: val("isFavorite") == "true",
-                mistakeCount: Int(val("mistakeCount")) ?? 0
+                mistakeCount: Int(val("mistakeCount")) ?? 0,
+                reviewStage: Int(val("reviewStage")) ?? 0,
+                lastReviewedAt: parseDate(val("lastReviewedAt")),
+                nextReviewAt: parseDate(val("nextReviewAt"))
             )
             words.append(entry)
         }
         return words
+    }
+
+    private static func formatDate(_ date: Date?) -> String {
+        guard let date else { return "" }
+        return dateFormatter.string(from: date)
+    }
+
+    private static func parseDate(_ value: String) -> Date? {
+        guard !value.isEmpty else { return nil }
+        return dateFormatter.date(from: value)
     }
     
     static func parseCSV(_ content: String) -> [[String]] {

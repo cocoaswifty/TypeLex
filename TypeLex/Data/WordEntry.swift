@@ -16,6 +16,9 @@ struct WordEntry: Codable, Identifiable {
     var soundExamplePath: String? // For example sound
     var isFavorite: Bool = false // User favorite status
     var mistakeCount: Int? = 0 // Historical mistake count (Optional for backward compatibility)
+    var reviewStage: Int? = 0 // Spaced repetition stage based on successful recalls
+    var lastReviewedAt: Date? // Last completion timestamp
+    var nextReviewAt: Date? // Next due time derived from the forgetting curve
 }
 
 // 用於預覽與測試的假資料

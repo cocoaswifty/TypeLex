@@ -12,6 +12,17 @@ class WordRepository {
     
     private let extensionName = "csv"
     private let defaultBookName = "Default"
+    private static let forgettingCurveIntervals: [TimeInterval] = [
+        5 * 60,
+        30 * 60,
+        12 * 60 * 60,
+        24 * 60 * 60,
+        2 * 24 * 60 * 60,
+        4 * 24 * 60 * 60,
+        7 * 24 * 60 * 60,
+        15 * 24 * 60 * 60,
+        30 * 24 * 60 * 60
+    ]
     
     private let bookmarkKey = "customStorageBookmark"
     private var customStorageURL: URL?
@@ -334,7 +345,6 @@ class WordRepository {
                 // 讀取 CSV 內容以找出相關媒體檔案
                 if let content = try? String(contentsOf: csvURL, encoding: .utf8) {
                     var words = CSVHelper.decode(content)
-                    var hasChanges = false
                     
                     // 搬移媒體檔案並更新路徑
                     for i in 0..<words.count {
@@ -344,20 +354,19 @@ class WordRepository {
                                 // 加上 media/ 前綴
                                 if !imgPath.contains("/") {
                                     words[i].localImagePath = "media/\(imgPath)"
-                                    hasChanges = true
                                 }
                             }
                         }
                         
                         // 處理聲音
                         if let sp = words[i].soundPath, migrateMediaFile(filename: sp, to: mediaFolder) {
-                            if !sp.contains("/") { words[i].soundPath = "media/\(sp)"; hasChanges = true }
+                            if !sp.contains("/") { words[i].soundPath = "media/\(sp)" }
                         }
                         if let smp = words[i].soundMeaningPath, migrateMediaFile(filename: smp, to: mediaFolder) {
-                            if !smp.contains("/") { words[i].soundMeaningPath = "media/\(smp)"; hasChanges = true }
+                            if !smp.contains("/") { words[i].soundMeaningPath = "media/\(smp)" }
                         }
                         if let sep = words[i].soundExamplePath, migrateMediaFile(filename: sep, to: mediaFolder) {
-                            if !sep.contains("/") { words[i].soundExamplePath = "media/\(sep)"; hasChanges = true }
+                            if !sep.contains("/") { words[i].soundExamplePath = "media/\(sep)" }
                         }
                     }
                     
@@ -452,7 +461,7 @@ class WordRepository {
     /// 新增或更新單字
     func addWord(_ word: WordEntry) {
         if let index = words.firstIndex(where: { $0.word.lowercased() == word.word.lowercased() }) {
-            words[index] = word
+            words[index] = mergeUserProgress(from: words[index], into: word)
         } else {
             words.append(word)
         }
@@ -522,7 +531,7 @@ class WordRepository {
             
             // Merge logic
             if let index = words.firstIndex(where: { $0.word.lowercased() == word.word.lowercased() }) {
-                words[index] = word
+                words[index] = mergeUserProgress(from: words[index], into: word)
             } else {
                 words.append(word)
             }
@@ -540,11 +549,30 @@ class WordRepository {
         }
     }
     
-    /// 記錄打錯次數
-    func recordMistake(for wordID: String, count: Int) {
+    /// 根據答題結果更新遺忘曲線排程與錯誤統計
+    func recordPracticeResult(for wordID: String, errorCount: Int, reviewedAt: Date = Date()) {
         if let index = words.firstIndex(where: { $0.id == wordID }) {
-            let current = words[index].mistakeCount ?? 0
-            words[index].mistakeCount = current + count
+            if errorCount > 0 {
+                let currentMistakes = words[index].mistakeCount ?? 0
+                words[index].mistakeCount = currentMistakes + errorCount
+            }
+
+            let currentStage = max(0, words[index].reviewStage ?? 0)
+            let nextStage: Int
+            let nextInterval: TimeInterval
+
+            if errorCount == 0 {
+                nextStage = min(currentStage + 1, Self.forgettingCurveIntervals.count)
+                let intervalIndex = max(0, nextStage - 1)
+                nextInterval = Self.forgettingCurveIntervals[intervalIndex]
+            } else {
+                nextStage = max(currentStage - 1, 0)
+                nextInterval = Self.retryInterval(for: errorCount)
+            }
+
+            words[index].reviewStage = nextStage
+            words[index].lastReviewedAt = reviewedAt
+            words[index].nextReviewAt = reviewedAt.addingTimeInterval(nextInterval)
             saveWords()
         }
     }
@@ -570,6 +598,27 @@ class WordRepository {
             try csvString.write(to: currentBookURL, atomically: true, encoding: .utf8)
         } catch {
             print("❌ Persistence Error: \(error)")
+        }
+    }
+
+    private func mergeUserProgress(from existing: WordEntry, into incoming: WordEntry) -> WordEntry {
+        var merged = incoming
+        merged.isFavorite = existing.isFavorite || incoming.isFavorite
+        merged.mistakeCount = max(existing.mistakeCount ?? 0, incoming.mistakeCount ?? 0)
+        merged.reviewStage = max(existing.reviewStage ?? 0, incoming.reviewStage ?? 0)
+        merged.lastReviewedAt = incoming.lastReviewedAt ?? existing.lastReviewedAt
+        merged.nextReviewAt = incoming.nextReviewAt ?? existing.nextReviewAt
+        return merged
+    }
+
+    private static func retryInterval(for errorCount: Int) -> TimeInterval {
+        switch errorCount {
+        case 3...:
+            return 60
+        case 2:
+            return 2 * 60
+        default:
+            return 5 * 60
         }
     }
 }

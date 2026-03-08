@@ -136,11 +136,10 @@ private extension SettingsView {
                 Button("Save") {
                     saveStabilityKey()
                 }
-                .disabled(stabilityKey.isEmpty)
             }
             
             if isStabilitySaved {
-                Text("✅ Stability Key saved")
+                Text(stabilityKey.isEmpty ? "✅ Stability Key cleared" : "✅ Stability Key saved")
                     .font(.caption)
                     .foregroundColor(.green)
                     .transition(.opacity)
@@ -192,8 +191,14 @@ private extension SettingsView {
     }
     
     func saveStabilityKey() {
-        guard !stabilityKey.isEmpty else { return }
-        KeychainHelper.shared.save(stabilityKey, for: KeychainHelper.stabilityKey)
+        let trimmedKey = stabilityKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        stabilityKey = trimmedKey
+
+        if trimmedKey.isEmpty {
+            KeychainHelper.shared.delete(for: KeychainHelper.stabilityKey)
+        } else {
+            KeychainHelper.shared.save(trimmedKey, for: KeychainHelper.stabilityKey)
+        }
         withAnimation { isStabilitySaved = true }
         
         Task {
@@ -202,4 +207,3 @@ private extension SettingsView {
         }
     }
 }
-
