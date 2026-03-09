@@ -18,6 +18,12 @@ enum PracticeMode: String, CaseIterable {
     }
 }
 
+enum PracticeScreenState: Equatable {
+    case ready
+    case emptyLibrary
+    case failure(title: String, message: String)
+}
+
 @Observable
 @MainActor
 class PracticeViewModel {
@@ -33,6 +39,7 @@ class PracticeViewModel {
     var alertMessage: String?
     var showAlert: Bool = false
     var isEmptyState: Bool = false
+    var screenState: PracticeScreenState = .emptyLibrary
     
     private var isTransitioning: Bool = false
     
@@ -41,33 +48,40 @@ class PracticeViewModel {
     let repository = WordRepository() // Public for ImportView access
     private let geminiService = GeminiService() // Need access for regeneration
     private let speechService = SpeechService.shared
+    private let userDefaults: UserDefaults
     
     private var history: [WordEntry] = []
     private var speechTask: Task<Void, Never>?
     
     // MARK: - Initialization
     
-    init() {
+    init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+        let preferences = PracticePreferences.load(using: userDefaults)
+        self.practiceMode = PracticeMode(rawValue: preferences.defaultPracticeMode) ?? .all
+
         // Initialize with first word from repository
         if repository.words.isEmpty {
             self.isEmptyState = true
+            self.screenState = .emptyLibrary
             let startWord = WordEntry.mock
             self.currentEntry = startWord
             self.engine = TypingEngine(targetWord: startWord.word)
             // Do NOT speak in empty state
         } else {
             self.isEmptyState = false
+            self.screenState = .ready
             let startWord = Self.selectNextWord(from: repository.words) ?? repository.words.first!
             self.currentEntry = startWord
             self.engine = TypingEngine(targetWord: startWord.word)
             
             // Speak only if we have real words
-            speakCurrentWord(count: 2)
+            speakCurrentWord()
         }
     }
     
     /// Load the built-in default library (@4000 Words)
-    func loadDefaultLibrary() {
+    func loadDefaultLibrary(completion: ((Bool) -> Void)? = nil) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
@@ -82,17 +96,24 @@ class PracticeViewModel {
                 do {
                     try self.repository.importLibrary(from: url)
                     self.refreshQueue()
+                    completion?(true)
                 } catch {
                     print("❌ Failed to load default library: \(error)")
-                    self.alertMessage = "Load Failed: \(error.localizedDescription)"
-                    self.showAlert = true
+                    self.presentLibraryImportFailure(
+                        title: "Load Failed",
+                        message: "The selected library could not be loaded.",
+                        error: error
+                    )
+                    completion?(false)
                 }
+            } else {
+                completion?(false)
             }
         }
     }
     
     /// Import a custom library from a folder
-    func importCustomLibrary() {
+    func importCustomLibrary(completion: ((Bool) -> Void)? = nil) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
@@ -106,10 +127,17 @@ class PracticeViewModel {
                 do {
                     try self.repository.importLibrary(from: url)
                     self.refreshQueue()
+                    completion?(true)
                 } catch {
-                    self.alertMessage = "Import Failed: \(error.localizedDescription)"
-                    self.showAlert = true
+                    self.presentLibraryImportFailure(
+                        title: "Import Failed",
+                        message: "The selected library could not be imported.",
+                        error: error
+                    )
+                    completion?(false)
                 }
+            } else {
+                completion?(false)
             }
         }
     }
@@ -118,6 +146,7 @@ class PracticeViewModel {
     func refreshQueue() {
         // Update Empty State
         self.isEmptyState = repository.words.isEmpty
+        self.screenState = repository.words.isEmpty ? .emptyLibrary : .ready
         
         if !repository.words.isEmpty {
             if currentEntry.id == WordEntry.mock.id || currentEntry.id == "abandon" {
@@ -134,6 +163,10 @@ class PracticeViewModel {
                 }
             }
         }
+    }
+
+    func clearScreenFailure() {
+        screenState = repository.words.isEmpty ? .emptyLibrary : .ready
     }
     
     func cyclePracticeMode() {
@@ -171,10 +204,14 @@ class PracticeViewModel {
     
     /// 播放發音
     /// - Parameter count: 播放次數 (預設 1 次)
-    func speakCurrentWord(count: Int = 1) {
+    func speakCurrentWord(count: Int? = nil) {
         print("🔊 speakCurrentWord (ID: \(ObjectIdentifier(self))) - Word: \(currentEntry.word)")
         // Guard against speaking the mock word in empty state
         if isEmptyState || currentEntry.id == "abandon" { return }
+
+        let preferences = PracticePreferences.load(using: userDefaults)
+        let playbackCount = max(1, count ?? preferences.wordPlaybackCount)
+        let playbackDelayNanoseconds = UInt64(max(0.3, preferences.wordPlaybackDelay) * 1_000_000_000)
         
         // Cancel previous task (stops pending 2nd playback)
         speechTask?.cancel()
@@ -183,17 +220,19 @@ class PracticeViewModel {
         playAudioForCurrentWord()
         
         // 2. Schedule subsequent plays if needed
-        if count > 1 {
+        if playbackCount > 1 || preferences.autoPlayExampleAudio {
             speechTask = Task { @MainActor in
-                // Delay before second playback
-                // Wait for audio to likely finish + gap
-                // Rough estimate: 1.0s (audio) + 0.3s (gap)
-                try? await Task.sleep(nanoseconds: 1_300_000_000)
-                
-                if Task.isCancelled { return }
-                
-                // Play Second time
-                playAudioForCurrentWord()
+                for _ in 1..<playbackCount {
+                    try? await Task.sleep(nanoseconds: playbackDelayNanoseconds)
+                    if Task.isCancelled { return }
+                    playAudioForCurrentWord()
+                }
+
+                if preferences.autoPlayExampleAudio, currentEntry.example != nil {
+                    try? await Task.sleep(nanoseconds: playbackDelayNanoseconds)
+                    if Task.isCancelled { return }
+                    playExampleForCurrentWord()
+                }
             }
         }
     }
@@ -229,17 +268,7 @@ class PracticeViewModel {
     /// 播放例句發音
     func speakExample() {
         speechTask?.cancel()
-        
-        if let soundPath = currentEntry.soundExamplePath {
-            let url = repository.resolveFileURL(for: soundPath)
-            if FileManager.default.fileExists(atPath: url.path) {
-                speechService.playAudio(at: url)
-                return
-            }
-        }
-        if let example = currentEntry.example {
-            speechService.speak(example)
-        }
+        playExampleForCurrentWord()
     }
     
     /// 切換收藏
@@ -270,12 +299,10 @@ class PracticeViewModel {
                         }
                     }
                 } else {
-                    self.alertMessage = "AI 繪圖伺服器沒有回應，請稍後再試。"
-                    self.showAlert = true
+                    self.presentAlert("AI 繪圖伺服器沒有回應，請稍後再試。")
                 }
             } catch {
-                self.alertMessage = "連線逾時或網路錯誤，請檢查您的網路連線。"
-                self.showAlert = true
+                self.presentAlert("連線逾時或網路錯誤，請檢查您的網路連線。")
             }
             self.isRegeneratingImage = false
         }
@@ -326,7 +353,7 @@ class PracticeViewModel {
         
         self.currentEntry = previous
         self.engine.reset(newWord: previous.word)
-        speakCurrentWord(count: 2)
+        speakCurrentWord()
     }
     
     // MARK: - Private Logic
@@ -378,7 +405,7 @@ class PracticeViewModel {
         
         self.currentEntry = next
         self.engine.reset(newWord: next.word)
-        speakCurrentWord(count: 2)
+        speakCurrentWord()
     }
 
     private static func selectNextWord(
@@ -414,5 +441,36 @@ class PracticeViewModel {
     private static func isDue(_ word: WordEntry, now: Date) -> Bool {
         guard let nextReviewAt = word.nextReviewAt else { return true }
         return nextReviewAt <= now
+    }
+
+    private func presentScreenFailure(title: String, message: String) {
+        screenState = .failure(title: title, message: message)
+    }
+
+    private func presentLibraryImportFailure(title: String, message: String, error: Error) {
+        if repository.words.isEmpty {
+            presentScreenFailure(title: title, message: message)
+            return
+        }
+
+        presentAlert("\(title): \(error.localizedDescription)")
+    }
+
+    private func presentAlert(_ message: String) {
+        alertMessage = message
+        showAlert = true
+    }
+
+    private func playExampleForCurrentWord() {
+        if let soundPath = currentEntry.soundExamplePath {
+            let url = repository.resolveFileURL(for: soundPath)
+            if FileManager.default.fileExists(atPath: url.path) {
+                speechService.playAudio(at: url)
+                return
+            }
+        }
+        if let example = currentEntry.example {
+            speechService.speak(example)
+        }
     }
 }

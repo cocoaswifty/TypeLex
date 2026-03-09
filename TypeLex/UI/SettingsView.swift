@@ -6,35 +6,46 @@ struct SettingsView: View {
     
     @State private var geminiKey: String = ""
     @State private var stabilityKey: String = ""
-    @State private var isGeminiSaved: Bool = false
-    @State private var isStabilitySaved: Bool = false
-    @State private var keychainErrorMessage: String?
-    @State private var showKeychainError: Bool = false
+    @State private var feedback: InlineFeedback?
+    @State private var isChangingStorageLocation: Bool = false
     
     // UI Scale setting (persisted)
     @AppStorage("userUIScale") private var userUIScale: Double = 1.0
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage(PreferenceKeys.wordPlaybackCount) private var wordPlaybackCount = 2
+    @AppStorage(PreferenceKeys.wordPlaybackDelay) private var wordPlaybackDelay = 1.3
+    @AppStorage(PreferenceKeys.autoPlayExampleAudio) private var autoPlayExampleAudio = false
+    @AppStorage(PreferenceKeys.showTranslations) private var showTranslations = true
+    @AppStorage(PreferenceKeys.showExampleTranslation) private var showExampleTranslation = true
+    @AppStorage(PreferenceKeys.defaultPracticeMode) private var defaultPracticeMode = PracticeMode.all.rawValue
     
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Settings")
-                .font(.title2)
-                .fontWeight(.bold)
-            
-            uiScaleSection
-            geminiSection
-            stabilitySection
-            
-            actionsSection
+        ScrollView {
+            VStack(spacing: 20) {
+                Text("Settings")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                if let feedback {
+                    InlineFeedbackView(feedback: feedback) {
+                        self.feedback = nil
+                    }
+                }
+                
+                uiScaleSection
+                onboardingSection
+                storageSection
+                practiceSection
+                geminiSection
+                stabilitySection
+                
+                actionsSection
+            }
+            .padding(30)
         }
-        .padding(30)
         .frame(width: 450)
         .onAppear {
             loadKeys()
-        }
-        .alert("Keychain Error", isPresented: $showKeychainError) {
-            Button("OK") {}
-        } message: {
-            Text(keychainErrorMessage ?? "Unknown keychain error.")
         }
     }
 }
@@ -76,9 +87,108 @@ private extension SettingsView {
                     Button("Reset") {
                         withAnimation { userUIScale = 1.0 }
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(BorderlessButtonStyle())
                     .font(.caption)
                     .disabled(abs(userUIScale - 1.0) < 0.01)
+                }
+            }
+        }
+        .padding()
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(8)
+    }
+
+    var onboardingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Onboarding")
+                .font(.headline)
+
+            Text("Show the first-run setup again if you want to re-run the initial library and settings flow.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            HStack {
+                Button("Show Onboarding Again") {
+                    hasCompletedOnboarding = false
+                }
+                .buttonStyle(BorderedButtonStyle())
+                .pointingCursor()
+
+                Spacer()
+            }
+        }
+        .padding()
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(8)
+    }
+
+    var storageSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Storage")
+                .font(.headline)
+
+            Text("Choose where books, CSV files, images, and audio are stored.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Text(repository.storageDirectory.path)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.blue)
+                .textSelection(.enabled)
+
+            HStack {
+                Button(isChangingStorageLocation ? "Moving..." : "Change Location") {
+                    selectNewLocation()
+                }
+                .buttonStyle(BorderedButtonStyle())
+                .pointingCursor()
+                .disabled(isChangingStorageLocation)
+
+                Spacer()
+            }
+        }
+        .padding()
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(8)
+    }
+
+    var practiceSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Practice")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Default Mode")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Picker("Default Mode", selection: $defaultPracticeMode) {
+                    ForEach(PracticeMode.allCases, id: \.rawValue) { mode in
+                        Text(mode.rawValue).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Toggle("Show word and meaning translations", isOn: $showTranslations)
+            Toggle("Show example translations", isOn: $showExampleTranslation)
+            Toggle("Auto-play example audio after the word", isOn: $autoPlayExampleAudio)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Stepper("Word playback count: \(wordPlaybackCount)x", value: $wordPlaybackCount, in: 1...4)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Playback gap")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(String(format: "%.1f", wordPlaybackDelay))s")
+                            .font(.caption.monospacedDigit())
+                            .foregroundColor(.secondary)
+                    }
+
+                    Slider(value: $wordPlaybackDelay, in: 0.4...2.4, step: 0.1)
                 }
             }
         }
@@ -103,13 +213,6 @@ private extension SettingsView {
                 Button("Save") {
                     saveGeminiKey()
                 }
-            }
-            
-            if isGeminiSaved {
-                Text(geminiKey.isEmpty ? "✅ Gemini Key cleared" : "✅ Gemini Key saved")
-                    .font(.caption)
-                    .foregroundColor(.green)
-                    .transition(.opacity)
             }
             
             Link("Get API Key from Google AI Studio", destination: URL(string: "https://aistudio.google.com/app/apikey")!)
@@ -144,13 +247,6 @@ private extension SettingsView {
                 }
             }
             
-            if isStabilitySaved {
-                Text(stabilityKey.isEmpty ? "✅ Stability Key cleared" : "✅ Stability Key saved")
-                    .font(.caption)
-                    .foregroundColor(.green)
-                    .transition(.opacity)
-            }
-            
             Link("Get API Key from Stability AI", destination: URL(string: "https://platform.stability.ai/account/keys")!)
                 .font(.caption)
                 .pointingCursor()
@@ -166,7 +262,7 @@ private extension SettingsView {
             Button("Done") {
                 dismiss()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(BorderedProminentButtonStyle())
             .pointingCursor()
         }
     }
@@ -180,7 +276,11 @@ private extension SettingsView {
             geminiKey = try KeychainHelper.shared.read(for: KeychainHelper.geminiKey) ?? ""
             stabilityKey = try KeychainHelper.shared.read(for: KeychainHelper.stabilityKey) ?? ""
         } catch {
-            presentKeychainError(error)
+            presentFeedback(
+                title: "Keychain Error",
+                message: error.localizedDescription,
+                style: .failure
+            )
         }
     }
     
@@ -194,9 +294,17 @@ private extension SettingsView {
             } else {
                 try KeychainHelper.shared.save(trimmedKey, for: KeychainHelper.geminiKey)
             }
-            showTransientSaveState(for: .gemini)
+            presentTransientFeedback(
+                title: trimmedKey.isEmpty ? "Gemini Key Cleared" : "Gemini Key Saved",
+                message: trimmedKey.isEmpty ? "Gemini fallback mode remains available." : "The Gemini API key was stored in the keychain.",
+                style: .success
+            )
         } catch {
-            presentKeychainError(error)
+            presentFeedback(
+                title: "Gemini Save Failed",
+                message: error.localizedDescription,
+                style: .failure
+            )
         }
     }
     
@@ -210,40 +318,74 @@ private extension SettingsView {
             } else {
                 try KeychainHelper.shared.save(trimmedKey, for: KeychainHelper.stabilityKey)
             }
-            showTransientSaveState(for: .stability)
+            presentTransientFeedback(
+                title: trimmedKey.isEmpty ? "Stability Key Cleared" : "Stability Key Saved",
+                message: trimmedKey.isEmpty ? "Image generation will use the fallback provider." : "The Stability API key was stored in the keychain.",
+                style: .success
+            )
         } catch {
-            presentKeychainError(error)
+            presentFeedback(
+                title: "Stability Save Failed",
+                message: error.localizedDescription,
+                style: .failure
+            )
         }
     }
 
-    func presentKeychainError(_ error: Error) {
-        keychainErrorMessage = error.localizedDescription
-        showKeychainError = true
-    }
+    func selectNewLocation() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select Storage Folder"
 
-    func showTransientSaveState(for keyType: SavedKeyType) {
-        switch keyType {
-        case .gemini:
-            withAnimation { isGeminiSaved = true }
-        case .stability:
-            withAnimation { isStabilitySaved = true }
-        }
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
 
-        Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            withAnimation {
-                switch keyType {
-                case .gemini:
-                    isGeminiSaved = false
-                case .stability:
-                    isStabilitySaved = false
+            self.isChangingStorageLocation = true
+            self.feedback = nil
+
+            Task(priority: .userInitiated) {
+                do {
+                    try repository.changeStorageLocation(to: url)
+                    await MainActor.run {
+                        self.isChangingStorageLocation = false
+                        self.presentFeedback(
+                            title: "Storage Updated",
+                            message: "App data was moved to the new storage location.",
+                            style: .success
+                        )
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.isChangingStorageLocation = false
+                        self.presentFeedback(
+                            title: "Storage Move Failed",
+                            message: error.localizedDescription,
+                            style: .failure
+                        )
+                    }
                 }
             }
         }
     }
-}
 
-private enum SavedKeyType {
-    case gemini
-    case stability
+    func presentFeedback(title: String, message: String, style: InlineFeedbackStyle) {
+        withAnimation {
+            feedback = InlineFeedback(title: title, message: message, style: style)
+        }
+    }
+
+    func presentTransientFeedback(title: String, message: String, style: InlineFeedbackStyle) {
+        presentFeedback(title: title, message: message, style: style)
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            withAnimation {
+                if feedback?.title == title {
+                    feedback = nil
+                }
+            }
+        }
+    }
 }

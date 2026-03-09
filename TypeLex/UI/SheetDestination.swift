@@ -5,6 +5,7 @@ enum SheetDestination: Identifiable {
     case wordList
     case settings
     case bookManager
+    case stats
     
     var id: String {
         switch self {
@@ -12,6 +13,7 @@ enum SheetDestination: Identifiable {
         case .wordList: return "wordList"
         case .settings: return "settings"
         case .bookManager: return "bookManager"
+        case .stats: return "stats"
         }
     }
 }

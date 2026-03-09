@@ -5,6 +5,8 @@ import SwiftUI
 struct TopToolbarView: View {
     let currentBookName: String
     @Binding var activeSheet: SheetDestination?
+    let onShowStats: () -> Void
+    let onShowShortcuts: () -> Void
     
     var body: some View {
         ZStack {
@@ -36,6 +38,8 @@ struct TopToolbarView: View {
             // 右側設定
             HStack(spacing: 24) {
                 Spacer()
+                ToolbarIconButton(icon: "chart.bar.xaxis", title: "Stats", action: onShowStats)
+                ToolbarIconButton(icon: "questionmark.circle", title: "Shortcuts", action: onShowShortcuts)
                 ToolbarIconButton(icon: "gearshape.fill", title: "Settings") { activeSheet = .settings }
             }
         }
@@ -140,86 +144,6 @@ struct LargeImageOverlay: View {
                 overlayImage = NSImage(named: imageName)
             }
         }
-    }
-}
-
-// MARK: - Welcome
-
-struct WelcomeView: View {
-    let onLoadDefault: () -> Void
-    let onImportCustom: () -> Void
-    
-    var body: some View {
-        VStack(spacing: 32) {
-            Image(systemName: "books.vertical.fill")
-                .font(.system(size: 80))
-                .foregroundStyle(AppTheme.Colors.primaryGradient)
-                .shadow(color: AppTheme.Colors.primary.opacity(0.3), radius: 20, x: 0, y: 10)
-            
-            VStack(spacing: 12) {
-                Text("Welcome to TypeLex")
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-                
-                Text("Start your typing journey by loading a vocabulary library.")
-                    .font(.title3)
-                    .foregroundColor(.secondary)
-            }
-            
-            VStack(spacing: 20) {
-                Button(action: {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) { onLoadDefault() }
-                }) {
-                    HStack(spacing: 16) {
-                        Image(systemName: "arrow.down.doc.fill")
-                            .font(.title2)
-                        
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Load @4000 Essential Words")
-                                .font(.headline)
-                            Text("Select the library folder to import")
-                                .font(.caption)
-                                .opacity(0.8)
-                        }
-                    }
-                    .padding(.vertical, 16)
-                    .padding(.horizontal, 24)
-                    .frame(minWidth: 320)
-                    .background(AppTheme.Colors.primaryGradient)
-                    .foregroundColor(.white)
-                    .cornerRadius(16)
-                    .shadow(color: AppTheme.Colors.primary.opacity(0.3), radius: 10, x: 0, y: 5)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .pointingCursor()
-
-                HStack {
-                    Rectangle().fill(Color.secondary.opacity(0.2)).frame(height: 1)
-                    Text("OR").font(.caption).foregroundColor(.secondary)
-                    Rectangle().fill(Color.secondary.opacity(0.2)).frame(height: 1)
-                }
-                .frame(width: 200)
-                
-                Button(action: onImportCustom) {
-                    HStack {
-                        Image(systemName: "folder.badge.plus")
-                        Text("Import Custom Library Folder")
-                    }
-                    .font(.headline)
-                    .foregroundColor(.secondary)
-                    .padding(.vertical, 12)
-                    .padding(.horizontal, 24)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 1))
-                }
-                .buttonStyle(PlainButtonStyle())
-                .pointingCursor()
-            }
-            .padding(.top, 20)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.ultraThinMaterial)
-        .transition(.opacity)
     }
 }
 

@@ -7,6 +7,7 @@ import Observation
 @Observable
 class WordRepository {
     var words: [WordEntry] = []
+    var reviewEvents: [ReviewEvent] = []
     var currentBookName: String = "Default"
     var availableBooks: [String] = []
     
@@ -52,6 +53,10 @@ class WordRepository {
     /// 目前單詞本的媒體資料夾路徑 (例如 Documents/Default/media/)
     var currentMediaFolder: URL {
         currentBookFolder.appendingPathComponent("media")
+    }
+
+    var currentReviewEventsURL: URL {
+        currentBookFolder.appendingPathComponent("review-events.json")
     }
     
     /// 為了相容性保留的屬性，等同於 currentBookURL.path
@@ -133,8 +138,7 @@ class WordRepository {
     
     /// 切換單詞本
     func loadBook(name: String) {
-        let folderURL = storageDirectory.appendingPathComponent(name)
-        let fileURL = folderURL.appendingPathComponent("\(name).\(extensionName)")
+        let fileURL = bookCSVURL(named: name)
         
         var shouldCreate = false
         
@@ -168,12 +172,13 @@ class WordRepository {
         
         // 載入資料
         do {
-            let content = try String(contentsOf: fileURL, encoding: .utf8)
-            self.words = CSVHelper.decode(content)
+            self.words = try loadWords(fromBookNamed: name)
+            self.reviewEvents = loadReviewEvents(fromBookNamed: name)
             print("📖 Loaded book: \(name) (\(words.count) words)")
         } catch {
             print("❌ Load Error for \(name): \(error). Fallback to empty list.")
             self.words = []
+            self.reviewEvents = []
             
             if name == defaultBookName {
                 print("⚠️ Default book corrupted. Re-creating.")
@@ -185,24 +190,16 @@ class WordRepository {
     /// 建立新單詞本
     func createNewBook(name: String) {
         guard !name.isEmpty else { return }
-        let folderURL = storageDirectory.appendingPathComponent(name)
-        let mediaURL = folderURL.appendingPathComponent("media")
-        let fileURL = folderURL.appendingPathComponent("\(name).\(extensionName)")
         
         do {
-            // 建立資料夾
-            try fileManager.createDirectory(at: mediaURL, withIntermediateDirectories: true)
-            
-            if !fileManager.fileExists(atPath: fileURL.path) {
-                let header = CSVHelper.header + "\n"
-                try header.write(to: fileURL, atomically: true, encoding: .utf8)
+            let created = try ensureBookExists(named: name)
+            if created {
                 print("✅ Created new book structure: \(name)")
-                loadBook(name: name)
-                refreshAvailableBooks()
             } else {
                 print("⚠️ Book csv already exists.")
-                loadBook(name: name) // Reload just in case
             }
+            loadBook(name: name)
+            refreshAvailableBooks()
         } catch {
             print("❌ Failed to create book: \(error)")
         }
@@ -212,7 +209,7 @@ class WordRepository {
     func deleteBook(name: String) {
         guard name != defaultBookName else { return }
         
-        let folderURL = storageDirectory.appendingPathComponent(name)
+        let folderURL = bookFolderURL(named: name)
         do {
             if fileManager.fileExists(atPath: folderURL.path) {
                 try fileManager.removeItem(at: folderURL)
@@ -240,15 +237,10 @@ class WordRepository {
         
         for bookName in availableBooks {
             if bookName == currentBookName { continue }
-            
-            let folderURL = storageDirectory.appendingPathComponent(bookName)
-            let fileURL = folderURL.appendingPathComponent("\(bookName).\(extensionName)")
-            
-            if let content = try? String(contentsOf: fileURL, encoding: .utf8) {
-                let bookWords = CSVHelper.decode(content)
-                if let found = bookWords.first(where: { $0.word.caseInsensitiveCompare(target) == .orderedSame }) {
-                    return found
-                }
+
+            if let bookWords = try? loadWords(fromBookNamed: bookName),
+               let found = bookWords.first(where: { $0.word.caseInsensitiveCompare(target) == .orderedSame }) {
+                return found
             }
         }
         return nil
@@ -569,10 +561,31 @@ class WordRepository {
             saveWords()
         }
     }
+
+    /// 批量設定收藏狀態
+    func setFavorite(_ isFavorite: Bool, for wordIDs: Set<String>) {
+        guard !wordIDs.isEmpty else { return }
+
+        var didChange = false
+        for index in words.indices where wordIDs.contains(words[index].id) {
+            if words[index].isFavorite != isFavorite {
+                words[index].isFavorite = isFavorite
+                didChange = true
+            }
+        }
+
+        if didChange {
+            saveWords()
+        }
+    }
     
     /// 根據答題結果更新遺忘曲線排程與錯誤統計
     func recordPracticeResult(for wordID: String, errorCount: Int, reviewedAt: Date = Date()) {
         if let index = words.firstIndex(where: { $0.id == wordID }) {
+            let existingWord = words[index]
+            let wasNewWord = existingWord.lastReviewedAt == nil || existingWord.nextReviewAt == nil
+            let wasOverdue = (existingWord.nextReviewAt ?? .distantFuture) <= reviewedAt && existingWord.nextReviewAt != nil
+
             if errorCount > 0 {
                 let currentMistakes = words[index].mistakeCount ?? 0
                 words[index].mistakeCount = currentMistakes + errorCount
@@ -594,32 +607,294 @@ class WordRepository {
             words[index].reviewStage = nextStage
             words[index].lastReviewedAt = reviewedAt
             words[index].nextReviewAt = reviewedAt.addingTimeInterval(nextInterval)
+
+            reviewEvents.append(
+                ReviewEvent(
+                    wordID: existingWord.id,
+                    word: existingWord.word,
+                    reviewedAt: reviewedAt,
+                    errorCount: errorCount,
+                    wasSuccessful: errorCount == 0,
+                    resultingReviewStage: nextStage,
+                    wasNewWord: wasNewWord,
+                    wasOverdue: wasOverdue
+                )
+            )
             saveWords()
+            saveReviewEvents()
         }
     }
     
     /// 批量刪除單字
     func deleteWords(at offsets: IndexSet) {
-        for index in offsets {
-            if let imgPath = words[index].localImagePath {
-                let url = resolveFileURL(for: imgPath)
-                try? fileManager.removeItem(at: url)
-            }
-            // Optional: Also delete sounds
+        let ids = Set(offsets.compactMap { words.indices.contains($0) ? words[$0].id : nil })
+        deleteWords(withIDs: ids)
+    }
+
+    /// 批量刪除單字
+    func deleteWords(withIDs wordIDs: Set<String>) {
+        guard !wordIDs.isEmpty else { return }
+        removeWordsFromCurrentBook(withIDs: wordIDs, deleteMedia: true)
+    }
+
+    /// 批量將單字移動到另一個單詞本
+    func moveWords(withIDs wordIDs: Set<String>, toBookNamed destinationBookName: String) throws {
+        guard !wordIDs.isEmpty, destinationBookName != currentBookName else { return }
+
+        if !availableBooks.contains(destinationBookName) {
+            _ = try ensureBookExists(named: destinationBookName)
         }
-        words.remove(atOffsets: offsets)
-        saveWords()
+
+        var destinationWords = try loadWords(fromBookNamed: destinationBookName)
+        let movingWords = words.filter { wordIDs.contains($0.id) }
+
+        for word in movingWords {
+            try copyMediaAssets(for: word, fromBookNamed: currentBookName, toBookNamed: destinationBookName)
+
+            if let index = destinationWords.firstIndex(where: { $0.word.lowercased() == word.word.lowercased() }) {
+                destinationWords[index] = mergeUserProgress(from: destinationWords[index], into: word)
+            } else {
+                destinationWords.append(word)
+            }
+        }
+
+        try saveWords(destinationWords, toBookNamed: destinationBookName)
+        removeWordsFromCurrentBook(withIDs: wordIDs, deleteMedia: false)
+        refreshAvailableBooks()
+    }
+
+    /// 批量重置複習進度與錯誤統計
+    func resetReviewProgress(for wordIDs: Set<String>) {
+        guard !wordIDs.isEmpty else { return }
+
+        var didChange = false
+        for index in words.indices where wordIDs.contains(words[index].id) {
+            words[index].mistakeCount = 0
+            words[index].reviewStage = 0
+            words[index].lastReviewedAt = nil
+            words[index].nextReviewAt = nil
+            didChange = true
+        }
+
+        if didChange {
+            saveWords()
+        }
+    }
+
+    func reviewStatsSummary(now: Date = Date(), calendar: Calendar = .current) -> ReviewStatsSummary {
+        let startOfToday = calendar.startOfDay(for: now)
+        let todayEvents = reviewEvents.filter { calendar.isDate($0.reviewedAt, inSameDayAs: now) }
+        let successfulToday = todayEvents.filter(\.wasSuccessful).count
+        let dueToday = words.filter { word in
+            guard let nextReviewAt = word.nextReviewAt else { return false }
+            return calendar.isDate(nextReviewAt, inSameDayAs: now)
+        }.count
+        let overdue = words.filter { word in
+            guard let nextReviewAt = word.nextReviewAt else { return false }
+            return nextReviewAt < startOfToday
+        }.count
+
+        return ReviewStatsSummary(
+            completedToday: todayEvents.count,
+            accuracyToday: todayEvents.isEmpty ? 0 : Double(successfulToday) / Double(todayEvents.count),
+            newWordsToday: todayEvents.filter(\.wasNewWord).count,
+            reviewWordsToday: todayEvents.filter { !$0.wasNewWord }.count,
+            dueToday: dueToday,
+            overdue: overdue,
+            streakDays: currentStreakDays(calendar: calendar, now: now)
+        )
+    }
+
+    func recentDailyProgress(days: Int = 7, now: Date = Date(), calendar: Calendar = .current) -> [ReviewDailyProgress] {
+        guard days > 0 else { return [] }
+
+        return (0..<days).compactMap { offset in
+            guard let date = calendar.date(byAdding: .day, value: -(days - offset - 1), to: now) else { return nil }
+            let dayEvents = reviewEvents.filter { calendar.isDate($0.reviewedAt, inSameDayAs: date) }
+
+            return ReviewDailyProgress(
+                date: calendar.startOfDay(for: date),
+                completedCount: dayEvents.count,
+                successfulCount: dayEvents.filter(\.wasSuccessful).count,
+                newWordCount: dayEvents.filter(\.wasNewWord).count
+            )
+        }
+    }
+
+    func reviewCalendarMonth(referenceDate: Date = Date(), calendar: Calendar = .current) -> [ReviewCalendarDay] {
+        guard
+            let monthInterval = calendar.dateInterval(of: .month, for: referenceDate),
+            let firstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start),
+            let lastWeekAnchor = calendar.date(byAdding: DateComponents(day: -1), to: monthInterval.end),
+            let lastWeek = calendar.dateInterval(of: .weekOfMonth, for: lastWeekAnchor)
+        else {
+            return []
+        }
+
+        var days: [ReviewCalendarDay] = []
+        var cursor = firstWeek.start
+
+        while cursor < lastWeek.end {
+            let dueCount = words.filter { word in
+                guard let nextReviewAt = word.nextReviewAt else { return false }
+                return calendar.isDate(nextReviewAt, inSameDayAs: cursor)
+            }.count
+
+            let completedCount = reviewEvents.filter { calendar.isDate($0.reviewedAt, inSameDayAs: cursor) }.count
+
+            days.append(
+                ReviewCalendarDay(
+                    date: cursor,
+                    dueCount: dueCount,
+                    completedCount: completedCount,
+                    isCurrentMonth: calendar.isDate(cursor, equalTo: referenceDate, toGranularity: .month),
+                    isToday: calendar.isDateInToday(cursor)
+                )
+            )
+
+            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
+            cursor = nextDay
+        }
+
+        return days
     }
     
     // MARK: - Persistence
     
     private func saveWords() {
         do {
-            let csvString = CSVHelper.encode(words)
-            try csvString.write(to: currentBookURL, atomically: true, encoding: .utf8)
+            try saveWords(words, toBookNamed: currentBookName)
         } catch {
             print("❌ Persistence Error: \(error)")
         }
+    }
+
+    private func saveWords(_ words: [WordEntry], toBookNamed bookName: String) throws {
+        let csvString = CSVHelper.encode(words)
+        try csvString.write(to: bookCSVURL(named: bookName), atomically: true, encoding: .utf8)
+    }
+
+    @discardableResult
+    private func ensureBookExists(named bookName: String) throws -> Bool {
+        let mediaURL = bookMediaFolderURL(named: bookName)
+        let fileURL = bookCSVURL(named: bookName)
+
+        try fileManager.createDirectory(at: mediaURL, withIntermediateDirectories: true)
+
+        guard !fileManager.fileExists(atPath: fileURL.path) else {
+            return false
+        }
+
+        let header = CSVHelper.header + "\n"
+        try header.write(to: fileURL, atomically: true, encoding: .utf8)
+        return true
+    }
+
+    private func loadWords(fromBookNamed bookName: String) throws -> [WordEntry] {
+        let content = try String(contentsOf: bookCSVURL(named: bookName), encoding: .utf8)
+        return CSVHelper.decode(content)
+    }
+
+    private func loadReviewEvents(fromBookNamed bookName: String) -> [ReviewEvent] {
+        let url = bookReviewEventsURL(named: bookName)
+        guard fileManager.fileExists(atPath: url.path) else { return [] }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try decoder.decode([ReviewEvent].self, from: data)
+        } catch {
+            print("⚠️ Failed to load review events: \(error)")
+            return []
+        }
+    }
+
+    private func saveReviewEvents() {
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted]
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(reviewEvents)
+            try data.write(to: currentReviewEventsURL, options: .atomic)
+        } catch {
+            print("❌ Failed to persist review events: \(error)")
+        }
+    }
+
+    private func removeWordsFromCurrentBook(withIDs wordIDs: Set<String>, deleteMedia: Bool) {
+        guard !wordIDs.isEmpty else { return }
+
+        if deleteMedia {
+            for entry in words where wordIDs.contains(entry.id) {
+                removeMediaAssets(for: entry)
+            }
+        }
+
+        words.removeAll { wordIDs.contains($0.id) }
+        saveWords()
+    }
+
+    private func removeMediaAssets(for entry: WordEntry) {
+        if let imgPath = entry.localImagePath {
+            let url = resolveFileURL(for: imgPath)
+            try? fileManager.removeItem(at: url)
+        }
+        // Optional: Also delete sounds
+    }
+
+    private func copyMediaAssets(for entry: WordEntry, fromBookNamed sourceBookName: String, toBookNamed destinationBookName: String) throws {
+        let relativePaths = [entry.localImagePath, entry.soundPath, entry.soundMeaningPath, entry.soundExamplePath]
+            .compactMap { $0 }
+            .filter { !$0.hasPrefix("/") }
+
+        for relativePath in relativePaths {
+            let sourceURL = bookFolderURL(named: sourceBookName).appendingPathComponent(relativePath)
+            let destinationURL = bookFolderURL(named: destinationBookName).appendingPathComponent(relativePath)
+
+            guard fileManager.fileExists(atPath: sourceURL.path) else { continue }
+
+            let destinationFolder = destinationURL.deletingLastPathComponent()
+            if !fileManager.fileExists(atPath: destinationFolder.path) {
+                try fileManager.createDirectory(at: destinationFolder, withIntermediateDirectories: true)
+            }
+
+            if !fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.copyItem(at: sourceURL, to: destinationURL)
+            }
+        }
+    }
+
+    private func bookFolderURL(named name: String) -> URL {
+        storageDirectory.appendingPathComponent(name)
+    }
+
+    private func bookCSVURL(named name: String) -> URL {
+        bookFolderURL(named: name).appendingPathComponent("\(name).\(extensionName)")
+    }
+
+    private func bookMediaFolderURL(named name: String) -> URL {
+        bookFolderURL(named: name).appendingPathComponent("media")
+    }
+
+    private func bookReviewEventsURL(named name: String) -> URL {
+        bookFolderURL(named: name).appendingPathComponent("review-events.json")
+    }
+
+    private func currentStreakDays(calendar: Calendar, now: Date) -> Int {
+        var streak = 0
+        var currentDate = calendar.startOfDay(for: now)
+
+        while true {
+            let hasEvent = reviewEvents.contains { calendar.isDate($0.reviewedAt, inSameDayAs: currentDate) }
+            guard hasEvent else { break }
+            streak += 1
+
+            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else { break }
+            currentDate = previousDay
+        }
+
+        return streak
     }
 
     private func mergeUserProgress(from existing: WordEntry, into incoming: WordEntry) -> WordEntry {
