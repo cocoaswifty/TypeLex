@@ -84,7 +84,7 @@ private extension BookManagerView {
             Button(action: { isCreating = true }) {
                 Label("New Book", systemImage: "plus.circle")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PlainButtonStyle())
             .pointingCursor()
             
             Spacer()
@@ -132,7 +132,7 @@ struct BookRowView: View {
                     Image(systemName: "trash")
                         .foregroundColor(.red.opacity(0.7))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PlainButtonStyle())
                 .pointingCursor()
             }
         }

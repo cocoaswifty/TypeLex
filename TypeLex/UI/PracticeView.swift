@@ -9,9 +9,11 @@ struct PracticeView: View {
     
     @State private var activeSheet: SheetDestination?
     @State private var showLargeImage = false
+    @State private var showShortcutHelp = false
     
     // User UI scale preference (synced with SettingsView)
     @AppStorage("userUIScale") private var userUIScale: Double = 1.0
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     
     // MARK: - Body
     
@@ -26,7 +28,9 @@ struct PracticeView: View {
                     // 1. 頂部工具列
                     TopToolbarView(
                         currentBookName: vm.repository.currentBookName,
-                        activeSheet: $activeSheet
+                        activeSheet: $activeSheet,
+                        onShowStats: { activeSheet = .stats },
+                        onShowShortcuts: { showShortcutHelp = true }
                     )
                     
                     Divider().frame(height: 16)
@@ -42,16 +46,54 @@ struct PracticeView: View {
                     // Apply user preference: userUIScale of 1.0 = 100%, 0.7 = 70%, 1.3 = 130%
                     let scale = autoScale * CGFloat(userUIScale)
                     
-                    if vm.isEmptyState {
-                        WelcomeView(
-                            onLoadDefault: { vm.loadDefaultLibrary() },
-                            onImportCustom: { vm.importCustomLibrary() }
-                        )
-                    } else {
+                    switch vm.screenState {
+                    case .ready:
                         PracticeCardView(
                             vm: vm,
                             showLargeImage: $showLargeImage,
                             scale: scale
+                        )
+                    case .emptyLibrary:
+                        StatusCardView(
+                            icon: "books.vertical.fill",
+                            title: "No Library Loaded",
+                            message: "Load the built-in library or import your own vocabulary set to start practicing.",
+                            primaryAction: StatusAction(
+                                title: "Load @4000 Essential Words",
+                                icon: "arrow.down.doc.fill",
+                                action: { vm.loadDefaultLibrary() }
+                            ),
+                            secondaryAction: StatusAction(
+                                title: "Import Custom Library",
+                                icon: "folder.badge.plus",
+                                action: { vm.importCustomLibrary() }
+                            ),
+                            tertiaryAction: StatusAction(
+                                title: "Open Settings",
+                                icon: "gearshape.fill",
+                                action: { activeSheet = .settings }
+                            )
+                        )
+                    case let .failure(title, message):
+                        StatusCardView(
+                            icon: "exclamationmark.triangle.fill",
+                            title: title,
+                            message: message,
+                            primaryAction: StatusAction(
+                                title: "Import Custom Library",
+                                icon: "folder.badge.plus",
+                                action: { vm.importCustomLibrary() }
+                            ),
+                            secondaryAction: StatusAction(
+                                title: "Load @4000 Essential Words",
+                                icon: "arrow.down.doc.fill",
+                                action: { vm.loadDefaultLibrary() }
+                            ),
+                            tertiaryAction: StatusAction(
+                                title: "Dismiss",
+                                icon: "xmark",
+                                action: { vm.clearScreenFailure() }
+                            )
                         )
                     }
                     
@@ -74,6 +116,24 @@ struct PracticeView: View {
             .onAppear {
                 isFocused = true
             }
+            .onReceive(NotificationCenter.default.publisher(for: .typeLexOpenImportLibrary)) { _ in
+                activeSheet = .importLibrary
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .typeLexOpenWordList)) { _ in
+                activeSheet = .wordList
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .typeLexOpenSettings)) { _ in
+                activeSheet = .settings
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .typeLexOpenBookManager)) { _ in
+                activeSheet = .bookManager
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .typeLexOpenStats)) { _ in
+                activeSheet = .stats
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .typeLexShowShortcutHelp)) { _ in
+                showShortcutHelp = true
+            }
             .onKeyPress { press in
                 handleKeyPress(press)
             }
@@ -88,6 +148,8 @@ struct PracticeView: View {
                     SettingsView(repository: vm.repository)
                 case .bookManager:
                     BookManagerView(repository: vm.repository)
+                case .stats:
+                    StatsView(repository: vm.repository)
                 }
             }
             .alert("Notice", isPresented: $vm.showAlert) {
@@ -97,6 +159,12 @@ struct PracticeView: View {
             }
             .overlay {
                 imageOverlay
+            }
+            .overlay {
+                onboardingOverlay
+            }
+            .overlay {
+                shortcutHelpOverlay
             }
         }
     }
@@ -113,6 +181,46 @@ private extension PracticeView {
                 repository: vm.repository,
                 isPresented: $showLargeImage
             )
+        }
+    }
+
+    @ViewBuilder
+    var onboardingOverlay: some View {
+        if !hasCompletedOnboarding {
+            OnboardingView(
+                onLoadDefault: {
+                    vm.loadDefaultLibrary { succeeded in
+                        if succeeded {
+                            hasCompletedOnboarding = true
+                        }
+                    }
+                },
+                onImportCustom: {
+                    vm.importCustomLibrary { succeeded in
+                        if succeeded {
+                            hasCompletedOnboarding = true
+                        }
+                    }
+                },
+                onOpenSettings: {
+                    activeSheet = .settings
+                },
+                onShowShortcuts: {
+                    showShortcutHelp = true
+                },
+                onSkip: {
+                    hasCompletedOnboarding = true
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    var shortcutHelpOverlay: some View {
+        if showShortcutHelp {
+            KeyboardShortcutHelpView {
+                showShortcutHelp = false
+            }
         }
     }
 }

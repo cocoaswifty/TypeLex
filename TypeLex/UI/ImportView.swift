@@ -3,17 +3,23 @@ import SwiftUI
 struct ImportView: View {
     @Environment(\.dismiss) var dismiss
     var repository: WordRepository
+    private let geminiService = GeminiService()
     
     @State private var inputText: String = ""
     @State private var isProcessing: Bool = false
     @State private var progressMessage: String = ""
     @State private var importedCount: Int = 0
-    @State private var alertMessage: String?
-    @State private var showAlert: Bool = false
+    @State private var feedback: InlineFeedback?
     
     var body: some View {
         VStack(spacing: 20) {
             headerSection
+
+            if let feedback {
+                InlineFeedbackView(feedback: feedback) {
+                    self.feedback = nil
+                }
+            }
             
             inputSection
             
@@ -27,11 +33,6 @@ struct ImportView: View {
         }
         .padding(30)
         .frame(width: 500, height: 450)
-        .alert("Notice", isPresented: $showAlert) {
-            Button("OK") {}
-        } message: {
-            Text(alertMessage ?? "")
-        }
     }
 }
 
@@ -60,7 +61,7 @@ private extension ImportView {
             .frame(minHeight: 150)
             .disabled(isProcessing)
     }
-    
+
     var storageSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -72,7 +73,7 @@ private extension ImportView {
                     selectNewLocation()
                 }
                 .font(.caption)
-                .buttonStyle(.link)
+                .buttonStyle(LinkButtonStyle())
                 .pointingCursor()
             }
             
@@ -124,7 +125,7 @@ private extension ImportView {
             Button("Import & Generate") {
                 startImport()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(BorderedProminentButtonStyle())
             .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isProcessing)
             .pointingCursor()
         }
@@ -147,6 +148,7 @@ private extension ImportView {
                 // Update UI to show processing state
                 self.isProcessing = true
                 self.progressMessage = "Moving data to new location..."
+                self.feedback = nil
                 let repository = self.repository
                 
                 Task(priority: .userInitiated) {
@@ -154,14 +156,20 @@ private extension ImportView {
                         try repository.changeStorageLocation(to: url)
                         
                         await MainActor.run {
-                            self.alertMessage = "Successfully moved data to new location."
-                            self.showAlert = true
+                            self.feedback = InlineFeedback(
+                                title: "Storage Updated",
+                                message: "Successfully moved data to the new location.",
+                                style: .success
+                            )
                             self.isProcessing = false
                         }
                     } catch {
                         await MainActor.run {
-                            self.alertMessage = "Failed to move data: \(error.localizedDescription)"
-                            self.showAlert = true
+                            self.feedback = InlineFeedback(
+                                title: "Storage Move Failed",
+                                message: error.localizedDescription,
+                                style: .failure
+                            )
                             self.isProcessing = false
                         }
                     }
@@ -179,6 +187,7 @@ private extension ImportView {
         guard !words.isEmpty else { return }
         
         isProcessing = true
+        feedback = nil
         importedCount = 0
         let totalCount = words.count
         print("🚀 Start importing \(totalCount) words...")
@@ -272,16 +281,31 @@ private extension ImportView {
                 if let geminiError = error as? GeminiError {
                     switch geminiError {
                     case .missingApiKey:
-                        alertMessage = "API Key not found. Please set your Google Gemini API Key in Settings."
+                        feedback = InlineFeedback(
+                            title: "Missing API Key",
+                            message: "Gemini key is not set. Open Settings to add one or rely on the existing fallback flow.",
+                            style: .failure
+                        )
                     case .apiError(let message):
-                        alertMessage = message
+                        feedback = InlineFeedback(
+                            title: "Import Failed",
+                            message: message,
+                            style: .failure
+                        )
                     default:
-                        alertMessage = "Error importing '\(word)': \(error.localizedDescription)"
+                        feedback = InlineFeedback(
+                            title: "Import Failed",
+                            message: "Error importing '\(word)': \(error.localizedDescription)",
+                            style: .failure
+                        )
                     }
                 } else {
-                    alertMessage = "Error importing '\(word)': \(error.localizedDescription)"
+                    feedback = InlineFeedback(
+                        title: "Import Failed",
+                        message: "Error importing '\(word)': \(error.localizedDescription)",
+                        style: .failure
+                    )
                 }
-                showAlert = true
             }
             throw error
         }

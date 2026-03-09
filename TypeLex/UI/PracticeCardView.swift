@@ -4,6 +4,9 @@ struct PracticeCardView: View {
     var vm: PracticeViewModel
     @Binding var showLargeImage: Bool
     var scale: CGFloat = 1.0
+
+    @AppStorage(PreferenceKeys.showTranslations) private var showTranslations = true
+    @AppStorage(PreferenceKeys.showExampleTranslation) private var showExampleTranslation = true
     
     var body: some View {
         VStack(spacing: 24 * scale) {
@@ -22,7 +25,7 @@ struct PracticeCardView: View {
             
             VStack(spacing: 0) {
                 // Translation
-                if let translation = vm.currentEntry.translation {
+                if showTranslations, let translation = vm.currentEntry.translation {
                     Text(translation)
                         .font(.system(size: 28 * scale, weight: .regular))
                 }
@@ -34,7 +37,7 @@ struct PracticeCardView: View {
                     isFinished: vm.engine.isFinished,
                     lastInputWasError: vm.engine.lastInputWasError,
                     scale: scale,
-                    onSpeak: { vm.speakCurrentWord() }
+                    onSpeak: { vm.speakCurrentWord(count: 1) }
                 )
 
                 // Metadata Chips
@@ -53,7 +56,7 @@ struct PracticeCardView: View {
 private extension PracticeCardView {
     var definitionSection: some View {
         VStack(spacing: 8 * scale) {
-            if let meaningTranslation = vm.currentEntry.meaningTranslation {
+            if showTranslations, let meaningTranslation = vm.currentEntry.meaningTranslation {
                 Text(meaningTranslation)
                     .font(.system(size: 16 * scale))
                     .foregroundColor(AppTheme.Colors.textSecondary)
@@ -74,7 +77,7 @@ private extension PracticeCardView {
                             .font(.system(size: 14 * scale))
                             .foregroundColor(.secondary.opacity(0.8))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PlainButtonStyle())
                     .pointingCursor()
                 }
             }
@@ -93,16 +96,16 @@ private extension PracticeCardView {
                 Text("[\(phonetic)]")
                     .font(.system(size: 20 * scale, weight: .regular, design: .monospaced))
                     .foregroundColor(.secondary.opacity(0.7))
-                    .onTapGesture { vm.speakCurrentWord() }
+                    .onTapGesture { vm.speakCurrentWord(count: 1) }
                     .pointingCursor()
             }
 
-            Button(action: { vm.speakCurrentWord() }) {
+            Button(action: { vm.speakCurrentWord(count: 1) }) {
                 Image(systemName: "speaker.wave.2")
                     .font(.system(size: 14 * scale))
                     .foregroundColor(.secondary.opacity(0.8))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PlainButtonStyle())
             .pointingCursor()
         }
         .padding(.horizontal, 20 * scale)
@@ -129,11 +132,11 @@ private extension PracticeCardView {
                                 .font(.system(size: 14 * scale))
                                 .foregroundColor(.secondary.opacity(0.8))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PlainButtonStyle())
                         .pointingCursor()
                     }
                     
-                    if let translation = vm.currentEntry.exampleTranslation {
+                    if showExampleTranslation, let translation = vm.currentEntry.exampleTranslation {
                         Text(translation)
                             .font(.system(size: 18 * scale))
                             .foregroundColor(.secondary.opacity(0.8))
