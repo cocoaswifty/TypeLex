@@ -14,7 +14,7 @@ class WordRepository {
     private let defaultBookName = "Default"
     private let fileManager: FileManager
     private let userDefaults: UserDefaults
-    private let storageDirectoryOverride: URL?
+    private var storageDirectoryOverride: URL?
     private static let forgettingCurveIntervals: [TimeInterval] = [
         5 * 60,
         30 * 60,
@@ -270,6 +270,9 @@ class WordRepository {
             
             customStorageURL?.stopAccessingSecurityScopedResource()
             customStorageURL = newURL
+            if storageDirectoryOverride != nil {
+                storageDirectoryOverride = newURL
+            }
             
             loadBook(name: currentBookName)
             refreshAvailableBooks()
