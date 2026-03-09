@@ -123,11 +123,8 @@ class GeminiService {
             do {
                 return try await fetchWithGemini(prompt: prompt, key: key)
             } catch {
-                print("⚠️ Gemini Failed: \(error). Switching to Pollinations...")
                 // Fallthrough to Pollinations
             }
-        } else {
-            print("ℹ️ No Gemini Key found. Using Pollinations AI...")
         }
         
         // 2. Fallback to Pollinations
@@ -226,8 +223,6 @@ class GeminiService {
             }
             
             if httpResponse.statusCode == 429 {
-                print("⚠️ Gemini Rate Limit (429). Retrying in \(Double(currentDelay)/1_000_000_000)s... (Attempt \(attempt)/\(maxRetries))")
-                
                 // 如果是最後一次嘗試，則拋出錯誤
                 if attempt == maxRetries {
                     throw GeminiError.apiError("AI 額度已達上限，重試 \(maxRetries) 次後仍失敗。請稍後再試。")

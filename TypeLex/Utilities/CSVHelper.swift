@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI // For possible Image usage if needed, but Foundation is enough for logic
 
 struct CSVHelper {
     static let header = "word,phonetic,translation,meaning,meaningTranslation,example,exampleTranslation,imageName,localImagePath,soundPath,soundMeaningPath,soundExamplePath,isFavorite,mistakeCount,reviewStage,lastReviewedAt,nextReviewAt"

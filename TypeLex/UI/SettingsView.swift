@@ -54,7 +54,7 @@ struct SettingsView: View {
 
 private extension SettingsView {
     var uiScaleSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        SectionCard {
             Text("Display")
                 .font(.headline)
             
@@ -93,13 +93,10 @@ private extension SettingsView {
                 }
             }
         }
-        .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
     }
 
     var onboardingSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        SectionCard {
             Text("Onboarding")
                 .font(.headline)
 
@@ -117,13 +114,10 @@ private extension SettingsView {
                 Spacer()
             }
         }
-        .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
     }
 
     var storageSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        SectionCard {
             Text("Storage")
                 .font(.headline)
 
@@ -131,29 +125,19 @@ private extension SettingsView {
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            Text(repository.storageDirectory.path)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.blue)
-                .textSelection(.enabled)
-
-            HStack {
-                Button(isChangingStorageLocation ? "Moving..." : "Change Location") {
-                    selectNewLocation()
-                }
-                .buttonStyle(BorderedButtonStyle())
-                .pointingCursor()
-                .disabled(isChangingStorageLocation)
-
-                Spacer()
-            }
+            StorageLocationSummaryView(
+                path: repository.storageDirectory.path,
+                changeTitle: isChangingStorageLocation ? "Moving..." : "Change Location",
+                buttonKind: .bordered,
+                onChange: selectNewLocation
+            )
+            .allowsHitTesting(!isChangingStorageLocation)
+            .opacity(isChangingStorageLocation ? 0.7 : 1)
         }
-        .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
     }
 
     var practiceSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        SectionCard {
             Text("Practice")
                 .font(.headline)
 
@@ -192,13 +176,10 @@ private extension SettingsView {
                 }
             }
         }
-        .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
     }
     
     var geminiSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        SectionCard {
             Text("Google Gemini API Key")
                 .font(.headline)
             
@@ -219,13 +200,10 @@ private extension SettingsView {
                 .font(.caption)
                 .pointingCursor()
         }
-        .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
     }
     
     var stabilitySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        SectionCard {
             HStack {
                 Text("Stability AI API Key")
                     .font(.headline)
@@ -251,9 +229,6 @@ private extension SettingsView {
                 .font(.caption)
                 .pointingCursor()
         }
-        .padding()
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
     }
     
     var actionsSection: some View {
@@ -276,7 +251,8 @@ private extension SettingsView {
             geminiKey = try KeychainHelper.shared.read(for: KeychainHelper.geminiKey) ?? ""
             stabilityKey = try KeychainHelper.shared.read(for: KeychainHelper.stabilityKey) ?? ""
         } catch {
-            presentFeedback(
+            presentInlineFeedback(
+                $feedback,
                 title: "Keychain Error",
                 message: error.localizedDescription,
                 style: .failure
@@ -294,13 +270,15 @@ private extension SettingsView {
             } else {
                 try KeychainHelper.shared.save(trimmedKey, for: KeychainHelper.geminiKey)
             }
-            presentTransientFeedback(
+            presentTransientInlineFeedback(
+                $feedback,
                 title: trimmedKey.isEmpty ? "Gemini Key Cleared" : "Gemini Key Saved",
                 message: trimmedKey.isEmpty ? "Gemini fallback mode remains available." : "The Gemini API key was stored in the keychain.",
                 style: .success
             )
         } catch {
-            presentFeedback(
+            presentInlineFeedback(
+                $feedback,
                 title: "Gemini Save Failed",
                 message: error.localizedDescription,
                 style: .failure
@@ -318,13 +296,15 @@ private extension SettingsView {
             } else {
                 try KeychainHelper.shared.save(trimmedKey, for: KeychainHelper.stabilityKey)
             }
-            presentTransientFeedback(
+            presentTransientInlineFeedback(
+                $feedback,
                 title: trimmedKey.isEmpty ? "Stability Key Cleared" : "Stability Key Saved",
                 message: trimmedKey.isEmpty ? "Image generation will use the fallback provider." : "The Stability API key was stored in the keychain.",
                 style: .success
             )
         } catch {
-            presentFeedback(
+            presentInlineFeedback(
+                $feedback,
                 title: "Stability Save Failed",
                 message: error.localizedDescription,
                 style: .failure
@@ -333,15 +313,8 @@ private extension SettingsView {
     }
 
     func selectNewLocation() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Select Storage Folder"
-
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
+        StorageLocationPicker.present { url in
+            guard let url else { return }
 
             self.isChangingStorageLocation = true
             self.feedback = nil
@@ -351,7 +324,8 @@ private extension SettingsView {
                     try repository.changeStorageLocation(to: url)
                     await MainActor.run {
                         self.isChangingStorageLocation = false
-                        self.presentFeedback(
+                        presentInlineFeedback(
+                            $feedback,
                             title: "Storage Updated",
                             message: "App data was moved to the new storage location.",
                             style: .success
@@ -360,30 +334,13 @@ private extension SettingsView {
                 } catch {
                     await MainActor.run {
                         self.isChangingStorageLocation = false
-                        self.presentFeedback(
+                        presentInlineFeedback(
+                            $feedback,
                             title: "Storage Move Failed",
                             message: error.localizedDescription,
                             style: .failure
                         )
                     }
-                }
-            }
-        }
-    }
-
-    func presentFeedback(title: String, message: String, style: InlineFeedbackStyle) {
-        withAnimation {
-            feedback = InlineFeedback(title: title, message: message, style: style)
-        }
-    }
-
-    func presentTransientFeedback(title: String, message: String, style: InlineFeedbackStyle) {
-        presentFeedback(title: title, message: message, style: style)
-        Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            withAnimation {
-                if feedback?.title == title {
-                    feedback = nil
                 }
             }
         }

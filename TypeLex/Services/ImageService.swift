@@ -16,21 +16,17 @@ class ImageService {
     func generateImage(context: String) async throws -> Data? {
         // 1. Try Pollinations AI First (Free & No Key)
         do {
-            print("🎨 Attempting generation with Pollinations AI...")
             if let data = try await generateWithPollinations(context: context) {
                 return data
             }
         } catch {
-            print("⚠️ Pollinations AI failed: \(error). Trying fallback...")
         }
         
         // 2. Fallback to Stability AI if Key exists
         if let stabilityKey = try? KeychainHelper.shared.read(for: KeychainHelper.stabilityKey), !stabilityKey.isEmpty {
             do {
-                print("🎨 Attempting fallback generation with Stability AI...")
                 return try await generateWithStability(context: context, apiKey: stabilityKey)
             } catch {
-                print("❌ Stability AI fallback also failed: \(error)")
                 throw error
             }
         }

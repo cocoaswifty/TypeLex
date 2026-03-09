@@ -1,6 +1,4 @@
 import Foundation
-import Combine
-import SwiftUI
 import Observation
 
 /// 管理單字資料的儲存、持久化與路徑管理
@@ -13,10 +11,10 @@ class WordRepository {
     
     private let extensionName = "csv"
     private let defaultBookName = "Default"
-    private let fileManager: FileManager
+    let fileManager: FileManager
     private let userDefaults: UserDefaults
     private var storageDirectoryOverride: URL?
-    private static let forgettingCurveIntervals: [TimeInterval] = [
+    static let forgettingCurveIntervals: [TimeInterval] = [
         5 * 60,
         30 * 60,
         12 * 60 * 60,
@@ -30,6 +28,22 @@ class WordRepository {
     
     private let bookmarkKey = "customStorageBookmark"
     private var customStorageURL: URL?
+
+    var storageSupport: WordRepositoryStorage {
+        WordRepositoryStorage(
+            fileManager: fileManager,
+            storageDirectory: storageDirectory,
+            extensionName: extensionName
+        )
+    }
+
+    private var migrationSupport: WordRepositoryMigration {
+        WordRepositoryMigration(
+            fileManager: fileManager,
+            storageDirectory: storageDirectory,
+            extensionName: extensionName
+        )
+    }
     
     /// 目前的儲存根目錄 (預設為 ~/Downloads/TypeLexLibrary)
     var storageDirectory: URL {
@@ -42,21 +56,17 @@ class WordRepository {
     
     /// 目前單詞本的資料夾路徑 (例如 Documents/Default/)
     var currentBookFolder: URL {
-        storageDirectory.appendingPathComponent(currentBookName)
+        storageSupport.bookFolderURL(named: currentBookName)
     }
     
     /// 目前單詞本的 CSV 路徑 (例如 Documents/Default/Default.csv)
     var currentBookURL: URL {
-        currentBookFolder.appendingPathComponent("\(currentBookName).\(extensionName)")
+        storageSupport.bookCSVURL(named: currentBookName)
     }
     
     /// 目前單詞本的媒體資料夾路徑 (例如 Documents/Default/media/)
     var currentMediaFolder: URL {
-        currentBookFolder.appendingPathComponent("media")
-    }
-
-    var currentReviewEventsURL: URL {
-        currentBookFolder.appendingPathComponent("review-events.json")
+        storageSupport.bookMediaFolderURL(named: currentBookName)
     }
     
     /// 為了相容性保留的屬性，等同於 currentBookURL.path
@@ -101,35 +111,15 @@ class WordRepository {
     /// - Parameter path: 相對路徑 (e.g., "media/image.png")
     /// - Returns: 完整 URL
     func resolveFileURL(for path: String) -> URL {
-        // 如果路徑已經是絕對路徑(不建議)，直接回傳
-        if path.hasPrefix("/") { return URL(fileURLWithPath: path) }
-        
-        // 預設相對於當前單詞本資料夾
-        return currentBookFolder.appendingPathComponent(path)
+        storageSupport.fileURL(for: path, inBookNamed: currentBookName)
     }
 
     // MARK: - Book Management
     
     /// 刷新可用單詞本列表 (掃描資料夾)
-    private func refreshAvailableBooks() {
+    func refreshAvailableBooks() {
         do {
-            let urls = try fileManager.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)
-            
-            var books: [String] = []
-            for url in urls {
-                // 必須是資料夾
-                var isDir: ObjCBool = false
-                if fileManager.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-                    let name = url.lastPathComponent
-                    // 檢查裡面是否有同名的 .csv
-                    let csvPath = url.appendingPathComponent("\(name).\(extensionName)")
-                    if fileManager.fileExists(atPath: csvPath.path) {
-                        books.append(name)
-                    }
-                }
-            }
-            // 如果列表為空，可能還沒遷移完或剛初始化，確保至少有 Default
-            self.availableBooks = books.sorted()
+            self.availableBooks = try storageSupport.refreshAvailableBooks()
         } catch {
             print("❌ Failed to list books: \(error)")
             self.availableBooks = []
@@ -138,7 +128,7 @@ class WordRepository {
     
     /// 切換單詞本
     func loadBook(name: String) {
-        let fileURL = bookCSVURL(named: name)
+        let fileURL = storageSupport.bookCSVURL(named: name)
         
         var shouldCreate = false
         
@@ -172,9 +162,8 @@ class WordRepository {
         
         // 載入資料
         do {
-            self.words = try loadWords(fromBookNamed: name)
-            self.reviewEvents = loadReviewEvents(fromBookNamed: name)
-            print("📖 Loaded book: \(name) (\(words.count) words)")
+            self.words = try storageSupport.loadWords(fromBookNamed: name)
+            self.reviewEvents = storageSupport.loadReviewEvents(fromBookNamed: name)
         } catch {
             print("❌ Load Error for \(name): \(error). Fallback to empty list.")
             self.words = []
@@ -193,9 +182,7 @@ class WordRepository {
         
         do {
             let created = try ensureBookExists(named: name)
-            if created {
-                print("✅ Created new book structure: \(name)")
-            } else {
+            if !created {
                 print("⚠️ Book csv already exists.")
             }
             loadBook(name: name)
@@ -209,11 +196,10 @@ class WordRepository {
     func deleteBook(name: String) {
         guard name != defaultBookName else { return }
         
-        let folderURL = bookFolderURL(named: name)
+        let folderURL = storageSupport.bookFolderURL(named: name)
         do {
             if fileManager.fileExists(atPath: folderURL.path) {
                 try fileManager.removeItem(at: folderURL)
-                print("🗑️ Deleted book folder: \(name)")
                 
                 if currentBookName == name {
                     loadBook(name: defaultBookName)
@@ -238,7 +224,7 @@ class WordRepository {
         for bookName in availableBooks {
             if bookName == currentBookName { continue }
 
-            if let bookWords = try? loadWords(fromBookNamed: bookName),
+            if let bookWords = try? storageSupport.loadWords(fromBookNamed: bookName),
                let found = bookWords.first(where: { $0.word.caseInsensitiveCompare(target) == .orderedSame }) {
                 return found
             }
@@ -255,7 +241,7 @@ class WordRepository {
         
         do {
             // 搬移所有資料夾
-            try moveAllContent(from: oldDirectory, to: newURL)
+            try storageSupport.moveAllContent(from: oldDirectory, to: newURL)
             
             let bookmarkData = try newURL.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
             userDefaults.set(bookmarkData, forKey: bookmarkKey)
@@ -272,40 +258,6 @@ class WordRepository {
         } catch {
             if accessing { newURL.stopAccessingSecurityScopedResource() }
             throw error
-        }
-    }
-    
-    private func moveAllContent(from source: URL, to destination: URL) throws {
-        // 確保目標資料夾存在
-        if !fileManager.fileExists(atPath: destination.path) {
-            try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
-        }
-        
-        // 為了避免移動到非 App 相關的檔案，我們只移動符合單詞本結構的資料夾。
-        let files = try fileManager.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)
-        
-        for file in files {
-            // 檢查是否為資料夾
-            var isDir: ObjCBool = false
-            guard fileManager.fileExists(atPath: file.path, isDirectory: &isDir), isDir.boolValue else {
-                continue
-            }
-            
-            let name = file.lastPathComponent
-            // 檢查是否包含同名 csv (e.g., Default/Default.csv)
-            let csvPath = file.appendingPathComponent("\(name).\(extensionName)")
-            
-            if fileManager.fileExists(atPath: csvPath.path) {
-                let targetURL = destination.appendingPathComponent(name)
-                
-                print("🚚 Moving book found: \(name) from \(file.path) to \(targetURL.path)")
-                
-                // 如果目標已存在，先移除舊的以確保移動成功
-                if fileManager.fileExists(atPath: targetURL.path) {
-                    try fileManager.removeItem(at: targetURL)
-                }
-                try fileManager.moveItem(at: file, to: targetURL)
-            }
         }
     }
     
@@ -329,592 +281,44 @@ class WordRepository {
     // MARK: - Migration Logic (Flat to Folder)
     
     private func migrateFileStructure() {
-        // 1. JSON to CSV (Old migration logic kept for safety)
-        migrateJSONToCSV()
-        
-        // 2. Flat to Folder (New migration)
-        do {
-            let files = try fileManager.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: nil)
-            let csvFiles = files.filter { $0.pathExtension == extensionName }
-            
-            for csvURL in csvFiles {
-                let bookName = csvURL.deletingPathExtension().lastPathComponent
-                
-                // 如果已經在資料夾結構中（我們是掃 root），這裡只會掃到 root 的 csv
-                // 如果是 Documents/Book/Book.csv，這裡不會掃到 (因為沒遞迴)
-                // 所以掃到的都是未遷移的 root CSV
-                
-                print("🔄 Migrating Book Structure for: \(bookName)")
-                
-                // 建立目標資料夾結構
-                let bookFolder = storageDirectory.appendingPathComponent(bookName)
-                let mediaFolder = bookFolder.appendingPathComponent("media")
-                let targetCSV = bookFolder.appendingPathComponent("\(bookName).\(extensionName)")
-                
-                if !fileManager.fileExists(atPath: mediaFolder.path) {
-                    try fileManager.createDirectory(at: mediaFolder, withIntermediateDirectories: true, attributes: nil)
-                }
-                
-                // 讀取 CSV 內容以找出相關媒體檔案
-                if let content = try? String(contentsOf: csvURL, encoding: .utf8) {
-                    var words = CSVHelper.decode(content)
-                    
-                    // 搬移媒體檔案並更新路徑
-                    for i in 0..<words.count {
-                        // 處理圖片
-                        if let imgPath = words[i].localImagePath, !imgPath.isEmpty {
-                            if migrateMediaFile(filename: imgPath, to: mediaFolder) {
-                                // 加上 media/ 前綴
-                                if !imgPath.contains("/") {
-                                    words[i].localImagePath = "media/\(imgPath)"
-                                }
-                            }
-                        }
-                        
-                        // 處理聲音
-                        if let sp = words[i].soundPath, migrateMediaFile(filename: sp, to: mediaFolder) {
-                            if !sp.contains("/") { words[i].soundPath = "media/\(sp)" }
-                        }
-                        if let smp = words[i].soundMeaningPath, migrateMediaFile(filename: smp, to: mediaFolder) {
-                            if !smp.contains("/") { words[i].soundMeaningPath = "media/\(smp)" }
-                        }
-                        if let sep = words[i].soundExamplePath, migrateMediaFile(filename: sep, to: mediaFolder) {
-                            if !sep.contains("/") { words[i].soundExamplePath = "media/\(sep)" }
-                        }
-                    }
-                    
-                    // 寫入新的 CSV 到資料夾中
-                    let newContent = CSVHelper.encode(words)
-                    try newContent.write(to: targetCSV, atomically: true, encoding: .utf8)
-                    
-                    // 移除舊 CSV
-                    try fileManager.removeItem(at: csvURL)
-                    print("✅ Migrated \(bookName) to folder structure.")
-                }
-            }
-        } catch {
-            print("⚠️ Migration failed: \(error)")
-        }
+        migrationSupport.migrateFileStructure()
     }
     
-    private func migrateMediaFile(filename: String, to folder: URL) -> Bool {
-        // 舊檔案在 root (只取檔名，忽略舊路徑中的目錄如果有的話)
-        let name = filename.components(separatedBy: "/").last ?? filename
-        let oldURL = storageDirectory.appendingPathComponent(name)
-        let targetURL = folder.appendingPathComponent(name)
-        
-        if fileManager.fileExists(atPath: oldURL.path) {
-            do {
-                if fileManager.fileExists(atPath: targetURL.path) {
-                    try fileManager.removeItem(at: targetURL)
-                }
-                try fileManager.moveItem(at: oldURL, to: targetURL)
-                return true
-            } catch {
-                print("❌ Failed to move media \(filename): \(error)")
-            }
-        } else {
-             // 檔案不在 root? 可能已經移過了? 或者根本不存在
-        }
-        return false
-    }
-
-    private func migrateJSONToCSV() {
-        let jsonExtension = "json"
-        do {
-            let files = try fileManager.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: nil)
-            let jsonFiles = files.filter { $0.pathExtension == jsonExtension }
-            
-            for url in jsonFiles {
-                let name = url.deletingPathExtension().lastPathComponent
-                print("🔄 Migrating \(name).json to .csv...")
-                
-                if let data = try? Data(contentsOf: url),
-                   let oldWords = try? JSONDecoder().decode([WordEntry].self, from: data) {
-                    
-                    let csvString = CSVHelper.encode(oldWords)
-                    // 寫入 CSV (這會觸發下次 migrateFileStructure 把它搬到資料夾)
-                    let csvURL = storageDirectory.appendingPathComponent(name).appendingPathExtension("csv")
-                    try csvString.write(to: csvURL, atomically: true, encoding: .utf8)
-                    
-                    try fileManager.removeItem(at: url)
-                    print("✅ Migrated \(name) to CSV.")
-                }
-            }
-        } catch {
-            print("⚠️ Migration failed: \(error)")
-        }
-    }
-    
-    // MARK: - CRUD Operations
-    
-    /// 儲存全新匯入的單字（含圖片處理）
-    func saveNewWord(entry: WordEntry, imageData: Data?) {
-        var newEntry = entry
-        
-        if let data = imageData {
-            let timestamp = Int(Date().timeIntervalSince1970)
-            let fileName = "\(entry.word)_\(timestamp).png"
-            let fileURL = currentMediaFolder.appendingPathComponent(fileName)
-            
-            do {
-                if !fileManager.fileExists(atPath: currentMediaFolder.path) {
-                    try fileManager.createDirectory(at: currentMediaFolder, withIntermediateDirectories: true)
-                }
-                try data.write(to: fileURL)
-                newEntry.localImagePath = "media/\(fileName)"
-            } catch {
-                print("❌ Failed to save word image: \(error)")
-            }
-        }
-        
-        addWord(newEntry)
-    }
-    
-    /// 新增或更新單字
-    func addWord(_ word: WordEntry) {
-        if let index = words.firstIndex(where: { $0.word.lowercased() == word.word.lowercased() }) {
-            words[index] = mergeUserProgress(from: words[index], into: word)
-        } else {
-            words.append(word)
-        }
-        saveWords()
-    }
-    
-    /// 更新單字圖片
-    func updateImage(for wordID: String, imageData: Data) {
-        guard let index = words.firstIndex(where: { $0.id == wordID }) else { return }
-        
-        // Remove old
-        if let oldPath = words[index].localImagePath {
-            let oldURL = resolveFileURL(for: oldPath)
-            try? fileManager.removeItem(at: oldURL)
-        }
-        
-        // Save new
-        let newFileName = "\(words[index].word)_\(Int(Date().timeIntervalSince1970)).png"
-        let newURL = currentMediaFolder.appendingPathComponent(newFileName)
-        
-        do {
-             if !fileManager.fileExists(atPath: currentMediaFolder.path) {
-                try fileManager.createDirectory(at: currentMediaFolder, withIntermediateDirectories: true)
-            }
-            try imageData.write(to: newURL)
-            words[index].localImagePath = "media/\(newFileName)"
-            saveWords()
-        } catch {
-            print("❌ Failed to update image: \(error)")
-        }
-    }
-    
-    /// 更新單字文字資訊
-    func updateWordInfo(for wordID: String, phonetic: String, translation: String?, meaning: String, meaningTranslation: String?, example: String, exampleTranslation: String, soundPath: String? = nil, soundMeaningPath: String? = nil, soundExamplePath: String? = nil) {
-        guard let index = words.firstIndex(where: { $0.id == wordID }) else { return }
-        
-        words[index].phonetic = phonetic
-        words[index].translation = translation
-        words[index].meaning = meaning
-        words[index].meaningTranslation = meaningTranslation
-        words[index].example = example
-        words[index].exampleTranslation = exampleTranslation
-        
-        if let sp = soundPath { words[index].soundPath = sp }
-        if let smp = soundMeaningPath { words[index].soundMeaningPath = smp }
-        if let sep = soundExamplePath { words[index].soundExamplePath = sep }
-        
-        saveWords()
-    }
-    
-    /// Import Library from folder
-    func importLibrary(from folderURL: URL) throws {
-        // Ensure media folder exists
-        if !fileManager.fileExists(atPath: currentMediaFolder.path) {
-            try fileManager.createDirectory(at: currentMediaFolder, withIntermediateDirectories: true)
-        }
-        
-        // Import to media folder
-        let newWords = try LibraryImporter.importLibrary(from: folderURL, to: currentMediaFolder)
-        
-        for var word in newWords {
-            // Update paths to include "media/" prefix
-            if let path = word.localImagePath, !path.isEmpty { word.localImagePath = "media/\(path)" }
-            if let path = word.soundPath, !path.isEmpty { word.soundPath = "media/\(path)" }
-            if let path = word.soundMeaningPath, !path.isEmpty { word.soundMeaningPath = "media/\(path)" }
-            if let path = word.soundExamplePath, !path.isEmpty { word.soundExamplePath = "media/\(path)" }
-            
-            // Merge logic
-            if let index = words.firstIndex(where: { $0.word.lowercased() == word.word.lowercased() }) {
-                words[index] = mergeUserProgress(from: words[index], into: word)
-            } else {
-                words.append(word)
-            }
-        }
-        
-        saveWords()
-        print("✅ Imported \(newWords.count) words from \(folderURL.path)")
-    }
-    
-    /// 切換收藏狀態
-    func toggleFavorite(for wordID: String) {
-        if let index = words.firstIndex(where: { $0.id == wordID }) {
-            words[index].isFavorite.toggle()
-            saveWords()
-        }
-    }
-
-    /// 批量設定收藏狀態
-    func setFavorite(_ isFavorite: Bool, for wordIDs: Set<String>) {
-        guard !wordIDs.isEmpty else { return }
-
-        var didChange = false
-        for index in words.indices where wordIDs.contains(words[index].id) {
-            if words[index].isFavorite != isFavorite {
-                words[index].isFavorite = isFavorite
-                didChange = true
-            }
-        }
-
-        if didChange {
-            saveWords()
-        }
-    }
-    
-    /// 根據答題結果更新遺忘曲線排程與錯誤統計
-    func recordPracticeResult(for wordID: String, errorCount: Int, reviewedAt: Date = Date()) {
-        if let index = words.firstIndex(where: { $0.id == wordID }) {
-            let existingWord = words[index]
-            let wasNewWord = existingWord.lastReviewedAt == nil || existingWord.nextReviewAt == nil
-            let wasOverdue = (existingWord.nextReviewAt ?? .distantFuture) <= reviewedAt && existingWord.nextReviewAt != nil
-
-            if errorCount > 0 {
-                let currentMistakes = words[index].mistakeCount ?? 0
-                words[index].mistakeCount = currentMistakes + errorCount
-            }
-
-            let currentStage = max(0, words[index].reviewStage ?? 0)
-            let nextStage: Int
-            let nextInterval: TimeInterval
-
-            if errorCount == 0 {
-                nextStage = min(currentStage + 1, Self.forgettingCurveIntervals.count)
-                let intervalIndex = max(0, nextStage - 1)
-                nextInterval = Self.forgettingCurveIntervals[intervalIndex]
-            } else {
-                nextStage = max(currentStage - 1, 0)
-                nextInterval = Self.retryInterval(for: errorCount)
-            }
-
-            words[index].reviewStage = nextStage
-            words[index].lastReviewedAt = reviewedAt
-            words[index].nextReviewAt = reviewedAt.addingTimeInterval(nextInterval)
-
-            reviewEvents.append(
-                ReviewEvent(
-                    wordID: existingWord.id,
-                    word: existingWord.word,
-                    reviewedAt: reviewedAt,
-                    errorCount: errorCount,
-                    wasSuccessful: errorCount == 0,
-                    resultingReviewStage: nextStage,
-                    wasNewWord: wasNewWord,
-                    wasOverdue: wasOverdue
-                )
-            )
-            saveWords()
-            saveReviewEvents()
-        }
-    }
-    
-    /// 批量刪除單字
-    func deleteWords(at offsets: IndexSet) {
-        let ids = Set(offsets.compactMap { words.indices.contains($0) ? words[$0].id : nil })
-        deleteWords(withIDs: ids)
-    }
-
-    /// 批量刪除單字
-    func deleteWords(withIDs wordIDs: Set<String>) {
-        guard !wordIDs.isEmpty else { return }
-        removeWordsFromCurrentBook(withIDs: wordIDs, deleteMedia: true)
-    }
-
-    /// 批量將單字移動到另一個單詞本
-    func moveWords(withIDs wordIDs: Set<String>, toBookNamed destinationBookName: String) throws {
-        guard !wordIDs.isEmpty, destinationBookName != currentBookName else { return }
-
-        if !availableBooks.contains(destinationBookName) {
-            _ = try ensureBookExists(named: destinationBookName)
-        }
-
-        var destinationWords = try loadWords(fromBookNamed: destinationBookName)
-        let movingWords = words.filter { wordIDs.contains($0.id) }
-
-        for word in movingWords {
-            try copyMediaAssets(for: word, fromBookNamed: currentBookName, toBookNamed: destinationBookName)
-
-            if let index = destinationWords.firstIndex(where: { $0.word.lowercased() == word.word.lowercased() }) {
-                destinationWords[index] = mergeUserProgress(from: destinationWords[index], into: word)
-            } else {
-                destinationWords.append(word)
-            }
-        }
-
-        try saveWords(destinationWords, toBookNamed: destinationBookName)
-        removeWordsFromCurrentBook(withIDs: wordIDs, deleteMedia: false)
-        refreshAvailableBooks()
-    }
-
-    /// 批量重置複習進度與錯誤統計
-    func resetReviewProgress(for wordIDs: Set<String>) {
-        guard !wordIDs.isEmpty else { return }
-
-        var didChange = false
-        for index in words.indices where wordIDs.contains(words[index].id) {
-            words[index].mistakeCount = 0
-            words[index].reviewStage = 0
-            words[index].lastReviewedAt = nil
-            words[index].nextReviewAt = nil
-            didChange = true
-        }
-
-        if didChange {
-            saveWords()
-        }
-    }
-
     func reviewStatsSummary(now: Date = Date(), calendar: Calendar = .current) -> ReviewStatsSummary {
-        let startOfToday = calendar.startOfDay(for: now)
-        let todayEvents = reviewEvents.filter { calendar.isDate($0.reviewedAt, inSameDayAs: now) }
-        let successfulToday = todayEvents.filter(\.wasSuccessful).count
-        let dueToday = words.filter { word in
-            guard let nextReviewAt = word.nextReviewAt else { return false }
-            return calendar.isDate(nextReviewAt, inSameDayAs: now)
-        }.count
-        let overdue = words.filter { word in
-            guard let nextReviewAt = word.nextReviewAt else { return false }
-            return nextReviewAt < startOfToday
-        }.count
-
-        return ReviewStatsSummary(
-            completedToday: todayEvents.count,
-            accuracyToday: todayEvents.isEmpty ? 0 : Double(successfulToday) / Double(todayEvents.count),
-            newWordsToday: todayEvents.filter(\.wasNewWord).count,
-            reviewWordsToday: todayEvents.filter { !$0.wasNewWord }.count,
-            dueToday: dueToday,
-            overdue: overdue,
-            streakDays: currentStreakDays(calendar: calendar, now: now)
-        )
+        WordRepositoryStatsCalculator(words: words, reviewEvents: reviewEvents)
+            .reviewStatsSummary(now: now, calendar: calendar)
     }
 
     func recentDailyProgress(days: Int = 7, now: Date = Date(), calendar: Calendar = .current) -> [ReviewDailyProgress] {
-        guard days > 0 else { return [] }
-
-        return (0..<days).compactMap { offset in
-            guard let date = calendar.date(byAdding: .day, value: -(days - offset - 1), to: now) else { return nil }
-            let dayEvents = reviewEvents.filter { calendar.isDate($0.reviewedAt, inSameDayAs: date) }
-
-            return ReviewDailyProgress(
-                date: calendar.startOfDay(for: date),
-                completedCount: dayEvents.count,
-                successfulCount: dayEvents.filter(\.wasSuccessful).count,
-                newWordCount: dayEvents.filter(\.wasNewWord).count
-            )
-        }
+        WordRepositoryStatsCalculator(words: words, reviewEvents: reviewEvents)
+            .recentDailyProgress(days: days, now: now, calendar: calendar)
     }
 
     func reviewCalendarMonth(referenceDate: Date = Date(), calendar: Calendar = .current) -> [ReviewCalendarDay] {
-        guard
-            let monthInterval = calendar.dateInterval(of: .month, for: referenceDate),
-            let firstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start),
-            let lastWeekAnchor = calendar.date(byAdding: DateComponents(day: -1), to: monthInterval.end),
-            let lastWeek = calendar.dateInterval(of: .weekOfMonth, for: lastWeekAnchor)
-        else {
-            return []
-        }
-
-        var days: [ReviewCalendarDay] = []
-        var cursor = firstWeek.start
-
-        while cursor < lastWeek.end {
-            let dueCount = words.filter { word in
-                guard let nextReviewAt = word.nextReviewAt else { return false }
-                return calendar.isDate(nextReviewAt, inSameDayAs: cursor)
-            }.count
-
-            let completedCount = reviewEvents.filter { calendar.isDate($0.reviewedAt, inSameDayAs: cursor) }.count
-
-            days.append(
-                ReviewCalendarDay(
-                    date: cursor,
-                    dueCount: dueCount,
-                    completedCount: completedCount,
-                    isCurrentMonth: calendar.isDate(cursor, equalTo: referenceDate, toGranularity: .month),
-                    isToday: calendar.isDateInToday(cursor)
-                )
-            )
-
-            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
-            cursor = nextDay
-        }
-
-        return days
+        WordRepositoryStatsCalculator(words: words, reviewEvents: reviewEvents)
+            .reviewCalendarMonth(referenceDate: referenceDate, calendar: calendar)
     }
     
     // MARK: - Persistence
     
-    private func saveWords() {
+    func saveWords() {
         do {
-            try saveWords(words, toBookNamed: currentBookName)
+            try storageSupport.saveWords(words, toBookNamed: currentBookName)
         } catch {
             print("❌ Persistence Error: \(error)")
         }
     }
 
-    private func saveWords(_ words: [WordEntry], toBookNamed bookName: String) throws {
-        let csvString = CSVHelper.encode(words)
-        try csvString.write(to: bookCSVURL(named: bookName), atomically: true, encoding: .utf8)
-    }
-
     @discardableResult
-    private func ensureBookExists(named bookName: String) throws -> Bool {
-        let mediaURL = bookMediaFolderURL(named: bookName)
-        let fileURL = bookCSVURL(named: bookName)
-
-        try fileManager.createDirectory(at: mediaURL, withIntermediateDirectories: true)
-
-        guard !fileManager.fileExists(atPath: fileURL.path) else {
-            return false
-        }
-
-        let header = CSVHelper.header + "\n"
-        try header.write(to: fileURL, atomically: true, encoding: .utf8)
-        return true
+    func ensureBookExists(named bookName: String) throws -> Bool {
+        try storageSupport.ensureBookExists(named: bookName)
     }
 
-    private func loadWords(fromBookNamed bookName: String) throws -> [WordEntry] {
-        let content = try String(contentsOf: bookCSVURL(named: bookName), encoding: .utf8)
-        return CSVHelper.decode(content)
-    }
-
-    private func loadReviewEvents(fromBookNamed bookName: String) -> [ReviewEvent] {
-        let url = bookReviewEventsURL(named: bookName)
-        guard fileManager.fileExists(atPath: url.path) else { return [] }
-
+    func saveReviewEvents() {
         do {
-            let data = try Data(contentsOf: url)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            return try decoder.decode([ReviewEvent].self, from: data)
-        } catch {
-            print("⚠️ Failed to load review events: \(error)")
-            return []
-        }
-    }
-
-    private func saveReviewEvents() {
-        do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted]
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(reviewEvents)
-            try data.write(to: currentReviewEventsURL, options: .atomic)
+            try storageSupport.saveReviewEvents(reviewEvents, toBookNamed: currentBookName)
         } catch {
             print("❌ Failed to persist review events: \(error)")
-        }
-    }
-
-    private func removeWordsFromCurrentBook(withIDs wordIDs: Set<String>, deleteMedia: Bool) {
-        guard !wordIDs.isEmpty else { return }
-
-        if deleteMedia {
-            for entry in words where wordIDs.contains(entry.id) {
-                removeMediaAssets(for: entry)
-            }
-        }
-
-        words.removeAll { wordIDs.contains($0.id) }
-        saveWords()
-    }
-
-    private func removeMediaAssets(for entry: WordEntry) {
-        if let imgPath = entry.localImagePath {
-            let url = resolveFileURL(for: imgPath)
-            try? fileManager.removeItem(at: url)
-        }
-        // Optional: Also delete sounds
-    }
-
-    private func copyMediaAssets(for entry: WordEntry, fromBookNamed sourceBookName: String, toBookNamed destinationBookName: String) throws {
-        let relativePaths = [entry.localImagePath, entry.soundPath, entry.soundMeaningPath, entry.soundExamplePath]
-            .compactMap { $0 }
-            .filter { !$0.hasPrefix("/") }
-
-        for relativePath in relativePaths {
-            let sourceURL = bookFolderURL(named: sourceBookName).appendingPathComponent(relativePath)
-            let destinationURL = bookFolderURL(named: destinationBookName).appendingPathComponent(relativePath)
-
-            guard fileManager.fileExists(atPath: sourceURL.path) else { continue }
-
-            let destinationFolder = destinationURL.deletingLastPathComponent()
-            if !fileManager.fileExists(atPath: destinationFolder.path) {
-                try fileManager.createDirectory(at: destinationFolder, withIntermediateDirectories: true)
-            }
-
-            if !fileManager.fileExists(atPath: destinationURL.path) {
-                try fileManager.copyItem(at: sourceURL, to: destinationURL)
-            }
-        }
-    }
-
-    private func bookFolderURL(named name: String) -> URL {
-        storageDirectory.appendingPathComponent(name)
-    }
-
-    private func bookCSVURL(named name: String) -> URL {
-        bookFolderURL(named: name).appendingPathComponent("\(name).\(extensionName)")
-    }
-
-    private func bookMediaFolderURL(named name: String) -> URL {
-        bookFolderURL(named: name).appendingPathComponent("media")
-    }
-
-    private func bookReviewEventsURL(named name: String) -> URL {
-        bookFolderURL(named: name).appendingPathComponent("review-events.json")
-    }
-
-    private func currentStreakDays(calendar: Calendar, now: Date) -> Int {
-        var streak = 0
-        var currentDate = calendar.startOfDay(for: now)
-
-        while true {
-            let hasEvent = reviewEvents.contains { calendar.isDate($0.reviewedAt, inSameDayAs: currentDate) }
-            guard hasEvent else { break }
-            streak += 1
-
-            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: currentDate) else { break }
-            currentDate = previousDay
-        }
-
-        return streak
-    }
-
-    private func mergeUserProgress(from existing: WordEntry, into incoming: WordEntry) -> WordEntry {
-        var merged = incoming
-        merged.isFavorite = existing.isFavorite || incoming.isFavorite
-        merged.mistakeCount = max(existing.mistakeCount ?? 0, incoming.mistakeCount ?? 0)
-        merged.reviewStage = max(existing.reviewStage ?? 0, incoming.reviewStage ?? 0)
-        merged.lastReviewedAt = incoming.lastReviewedAt ?? existing.lastReviewedAt
-        merged.nextReviewAt = incoming.nextReviewAt ?? existing.nextReviewAt
-        return merged
-    }
-
-    private static func retryInterval(for errorCount: Int) -> TimeInterval {
-        switch errorCount {
-        case 3...:
-            return 60
-        case 2:
-            return 2 * 60
-        default:
-            return 5 * 60
         }
     }
 }

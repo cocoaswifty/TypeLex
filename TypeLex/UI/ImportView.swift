@@ -8,7 +8,6 @@ struct ImportView: View {
     @State private var inputText: String = ""
     @State private var isProcessing: Bool = false
     @State private var progressMessage: String = ""
-    @State private var importedCount: Int = 0
     @State private var feedback: InlineFeedback?
     
     var body: some View {
@@ -63,32 +62,13 @@ private extension ImportView {
     }
 
     var storageSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Data stored at:")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Button("Change Location") {
-                    selectNewLocation()
-                }
-                .font(.caption)
-                .buttonStyle(LinkButtonStyle())
-                .pointingCursor()
-            }
-            
-            Text(repository.dataFilePath)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundColor(.blue)
-                .contextMenu {
-                    Button("Copy Path") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(repository.dataFilePath, forType: .string)
-                    }
-                }
-        }
+        StorageLocationSummaryView(
+            path: repository.dataFilePath,
+            changeTitle: "Change Location",
+            buttonKind: .link,
+            onChange: selectNewLocation
+        )
         .padding(.horizontal, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
     
     var processingOverlay: some View {
@@ -136,42 +116,36 @@ private extension ImportView {
 
 private extension ImportView {
     func selectNewLocation() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Select Storage Folder"
-        
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                // Update UI to show processing state
-                self.isProcessing = true
-                self.progressMessage = "Moving data to new location..."
-                self.feedback = nil
-                let repository = self.repository
-                
-                Task(priority: .userInitiated) {
-                    do {
-                        try repository.changeStorageLocation(to: url)
-                        
-                        await MainActor.run {
-                            self.feedback = InlineFeedback(
-                                title: "Storage Updated",
-                                message: "Successfully moved data to the new location.",
-                                style: .success
-                            )
-                            self.isProcessing = false
-                        }
-                    } catch {
-                        await MainActor.run {
-                            self.feedback = InlineFeedback(
-                                title: "Storage Move Failed",
-                                message: error.localizedDescription,
-                                style: .failure
-                            )
-                            self.isProcessing = false
-                        }
+        StorageLocationPicker.present { url in
+            guard let url else { return }
+
+            self.isProcessing = true
+            self.progressMessage = "Moving data to new location..."
+            self.feedback = nil
+            let repository = self.repository
+
+            Task(priority: .userInitiated) {
+                do {
+                    try repository.changeStorageLocation(to: url)
+
+                    await MainActor.run {
+                        presentInlineFeedback(
+                            $feedback,
+                            title: "Storage Updated",
+                            message: "Successfully moved data to the new location.",
+                            style: .success
+                        )
+                        self.isProcessing = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        presentInlineFeedback(
+                            $feedback,
+                            title: "Storage Move Failed",
+                            message: error.localizedDescription,
+                            style: .failure
+                        )
+                        self.isProcessing = false
                     }
                 }
             }
@@ -188,18 +162,14 @@ private extension ImportView {
         
         isProcessing = true
         feedback = nil
-        importedCount = 0
         let totalCount = words.count
-        print("🚀 Start importing \(totalCount) words...")
         
         Task {
             var hasError = false
             for (index, word) in words.enumerated() {
                 do {
-                    print("➡️ [\(index + 1)/\(totalCount)] Processing: \(word)")
                     try await processWord(word, index: index + 1, total: totalCount)
                 } catch {
-                    print("❌ Error processing '\(word)': \(error)")
                     hasError = true
                     break
                 }
@@ -207,7 +177,6 @@ private extension ImportView {
             
             await MainActor.run {
                 isProcessing = false
-                print("🏁 Import session finished. Success: \(importedCount)/\(totalCount)")
                 if !hasError {
                     dismiss()
                 }
@@ -223,13 +192,11 @@ private extension ImportView {
         }
         
         if let existingEntry = repository.findWordGlobally(targetWord: word) {
-            print("   ↳ Found locally: \(existingEntry.id)")
             try? await Task.sleep(nanoseconds: 200_000_000)
             
             await MainActor.run {
                 self.progressMessage = "\(prefix) Found in local library!"
                 self.repository.saveNewWord(entry: existingEntry, imageData: nil)
-                self.importedCount += 1
             }
             return
         }
@@ -237,7 +204,6 @@ private extension ImportView {
         await MainActor.run {
             progressMessage = "\(prefix) Generating definitions (Gemini AI)..."
         }
-        print("   ↳ Generating AI content...")
         
         do {
             // 1. Generate Text (Gemini)
@@ -250,7 +216,6 @@ private extension ImportView {
             // 2. Generate Image (ImageService)
             let imageData = try await ImageService.shared.generateImage(context: info.example)
             
-            print("   ↳ AI Generation success. Saving...")
             await MainActor.run {
                 progressMessage = "\(prefix) Saving..."
             }
@@ -272,35 +237,37 @@ private extension ImportView {
             
             await MainActor.run {
                 repository.saveNewWord(entry: entry, imageData: imageData)
-                importedCount += 1
             }
             
         } catch {
-            print("   ↳ AI Generation failed: \(error)")
             await MainActor.run {
                 if let geminiError = error as? GeminiError {
                     switch geminiError {
                     case .missingApiKey:
-                        feedback = InlineFeedback(
+                        presentInlineFeedback(
+                            $feedback,
                             title: "Missing API Key",
                             message: "Gemini key is not set. Open Settings to add one or rely on the existing fallback flow.",
                             style: .failure
                         )
                     case .apiError(let message):
-                        feedback = InlineFeedback(
+                        presentInlineFeedback(
+                            $feedback,
                             title: "Import Failed",
                             message: message,
                             style: .failure
                         )
                     default:
-                        feedback = InlineFeedback(
+                        presentInlineFeedback(
+                            $feedback,
                             title: "Import Failed",
                             message: "Error importing '\(word)': \(error.localizedDescription)",
                             style: .failure
                         )
                     }
                 } else {
-                    feedback = InlineFeedback(
+                    presentInlineFeedback(
+                        $feedback,
                         title: "Import Failed",
                         message: "Error importing '\(word)': \(error.localizedDescription)",
                         style: .failure

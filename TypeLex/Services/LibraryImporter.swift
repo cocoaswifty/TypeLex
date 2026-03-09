@@ -8,10 +8,8 @@ import Foundation
 class LibraryImporter {
     
     enum ImportError: Error {
-        case fileNotFound
         case csvNotFound
         case invalidCSVContent
-        case securityAccessRequired
     }
     
     /// Imports a library from a folder URL or a ZIP file URL
@@ -22,7 +20,6 @@ class LibraryImporter {
         
         // Handle ZIP files
         if inputURL.pathExtension.lowercased() == "zip" {
-            print("📦 Detected ZIP file. Extracting...")
             let tempDir = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
             try unzip(file: inputURL, to: tempDir)
             processingURL = tempDir
@@ -33,7 +30,6 @@ class LibraryImporter {
         defer {
             if isTempDirectory {
                 try? fileManager.removeItem(at: processingURL)
-                print("🧹 Cleaned up temp directory: \(processingURL.path)")
             }
         }
 
@@ -56,27 +52,22 @@ class LibraryImporter {
             if !isTempDirectory && processingURL.pathExtension.lowercased() == "csv" {
                 csvURLs.append(processingURL)
             } else {
-                print("❌ No CSV files found in: \(processingURL.path)")
                 throw ImportError.csvNotFound
             }
         }
         
         var allWords: [WordEntry] = []
         
-        print("🔍 Found \(csvURLs.count) CSV files: \(csvURLs.map { $0.lastPathComponent })")
-        
         for csvURL in csvURLs {
             do {
                 let wordsFromFile = try importWords(from: csvURL, libraryRoot: processingURL, to: targetDirectory)
-                print("✅ Imported \(wordsFromFile.count) words from \(csvURL.lastPathComponent)")
                 allWords.append(contentsOf: wordsFromFile)
             } catch {
-                print("⚠️ Failed to import from \(csvURL.lastPathComponent): \(error)")
+                continue
             }
         }
         
         guard !allWords.isEmpty else {
-            print("❌ No words imported from any CSV file.")
             throw ImportError.invalidCSVContent
         }
         return allWords
@@ -95,22 +86,16 @@ class LibraryImporter {
         process.standardOutput = pipe
         process.standardError = pipe
         
-        print("⚡️ Executing unzip command...")
         try process.run()
         process.waitUntilExit()
         
         if process.terminationStatus != 0 {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? "Unknown error"
-            print("❌ Unzip failed: \(output)")
-            throw ImportError.invalidCSVContent 
+            throw ImportError.invalidCSVContent
         }
-        print("✅ Unzip successful to: \(destinationURL.path)")
     }
     
     private static func importWords(from csvURL: URL, libraryRoot: URL, to targetDirectory: URL) throws -> [WordEntry] {
         let fileManager = FileManager.default
-        print("📂 Processing CSV: \(csvURL.lastPathComponent)")
         
         // Try multiple encodings
         var csvContent: String = ""
@@ -122,7 +107,6 @@ class LibraryImporter {
                 csvContent = try String(contentsOf: csvURL, encoding: encoding)
                 if !csvContent.isEmpty {
                     loadError = nil
-                    print("📄 Successfully read CSV content with encoding: \(encoding)")
                     break 
                 }
             } catch {
@@ -131,15 +115,10 @@ class LibraryImporter {
         }
         
         if csvContent.isEmpty, let error = loadError {
-            print("❌ Failed to read CSV content: \(error)")
             throw error
         }
         
-        print("🔍 Content Preview (first 100 chars): \(csvContent.prefix(100))")
-        print("🔍 Content Scalars (first 50): \(csvContent.prefix(50).unicodeScalars.map { $0.value })")
-        
         let rows = CSVHelper.parseCSV(csvContent)
-        print("📊 Parsed \(rows.count) rows (including header)")
         guard rows.count > 1 else { return [] }
         
         // 3. Parse Headers (More robust cleaning)
@@ -151,7 +130,6 @@ class LibraryImporter {
             let cleanHeader = h.trimmingCharacters(in: sensitiveChars).lowercased()
             indexMap[cleanHeader] = i
         }
-        print("🏷 Headers found: \(indexMap.keys)")
         
         var words: [WordEntry] = []
         let mediaDirectory = libraryRoot.appendingPathComponent("media")
@@ -199,7 +177,6 @@ class LibraryImporter {
             
             let word = val(["Word", "word", "單字", "Text", "Name"])
             if word.isEmpty {
-                 print("⚠️ Row \(i): Skipped because 'Word' field is empty. Fields: \(fields)")
                  continue
             }
             
