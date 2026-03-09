@@ -1,7 +1,8 @@
 import AVFoundation
+import OSLog
 
 @MainActor
-final class SpeechService {
+final class SpeechService: SpeechPlaying {
     static let shared = SpeechService()
     
     private let synthesizer = AVSpeechSynthesizer()
@@ -32,7 +33,7 @@ final class SpeechService {
             player?.prepareToPlay()
             player?.play()
         } catch {
-            print("❌ Failed to play audio at \(url): \(error)")
+            AppLogger.speech.error("Failed to play audio at \(url.path, privacy: .public): \(error.localizedDescription)")
         }
     }
 }

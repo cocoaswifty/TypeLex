@@ -1,28 +1,21 @@
 import SwiftUI
+import OSLog
 
 struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     var repository: WordRepository
+    @Bindable var settings: AppSettingsStore
+    let storageLocationPicker: StorageLocationPicking = AppPanelService()
     
     @State private var geminiKey: String = ""
     @State private var stabilityKey: String = ""
     @State private var feedback: InlineFeedback?
     @State private var isChangingStorageLocation: Bool = false
     
-    // UI Scale setting (persisted)
-    @AppStorage("userUIScale") private var userUIScale: Double = 1.0
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
-    @AppStorage(PreferenceKeys.wordPlaybackCount) private var wordPlaybackCount = 2
-    @AppStorage(PreferenceKeys.wordPlaybackDelay) private var wordPlaybackDelay = 1.3
-    @AppStorage(PreferenceKeys.autoPlayExampleAudio) private var autoPlayExampleAudio = false
-    @AppStorage(PreferenceKeys.showTranslations) private var showTranslations = true
-    @AppStorage(PreferenceKeys.showExampleTranslation) private var showExampleTranslation = true
-    @AppStorage(PreferenceKeys.defaultPracticeMode) private var defaultPracticeMode = PracticeMode.all.rawValue
-    
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                Text("Settings")
+                Text(AppStrings.settingsTitle)
                     .font(.title2)
                     .fontWeight(.bold)
 
@@ -68,7 +61,7 @@ private extension SettingsView {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     
-                    Slider(value: $userUIScale, in: 0.7...1.3, step: 0.05)
+                    Slider(value: $settings.userUIScale, in: 0.7...1.3, step: 0.05)
                         .frame(maxWidth: .infinity)
                     
                     Text("Larger")
@@ -77,7 +70,7 @@ private extension SettingsView {
                 }
                 
                 HStack {
-                    Text("Current: \(Int(userUIScale * 100))%")
+                    Text("Current: \(Int(settings.userUIScale * 100))%")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .monospacedDigit()
@@ -85,11 +78,12 @@ private extension SettingsView {
                     Spacer()
                     
                     Button("Reset") {
-                        withAnimation { userUIScale = 1.0 }
+                        withAnimation { settings.userUIScale = 1.0 }
                     }
                     .buttonStyle(BorderlessButtonStyle())
                     .font(.caption)
-                    .disabled(abs(userUIScale - 1.0) < 0.01)
+                    .accessibilityLabel("Reset display scale")
+                    .disabled(abs(settings.userUIScale - 1.0) < 0.01)
                 }
             }
         }
@@ -106,9 +100,10 @@ private extension SettingsView {
 
             HStack {
                 Button("Show Onboarding Again") {
-                    hasCompletedOnboarding = false
+                    settings.hasCompletedOnboarding = false
                 }
                 .buttonStyle(BorderedButtonStyle())
+                .accessibilityHint("Shows the first-run setup flow again")
                 .pointingCursor()
 
                 Spacer()
@@ -146,7 +141,7 @@ private extension SettingsView {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                Picker("Default Mode", selection: $defaultPracticeMode) {
+                Picker("Default Mode", selection: $settings.defaultPracticeMode) {
                     ForEach(PracticeMode.allCases, id: \.rawValue) { mode in
                         Text(mode.rawValue).tag(mode.rawValue)
                     }
@@ -154,12 +149,12 @@ private extension SettingsView {
                 .pickerStyle(.segmented)
             }
 
-            Toggle("Show word and meaning translations", isOn: $showTranslations)
-            Toggle("Show example translations", isOn: $showExampleTranslation)
-            Toggle("Auto-play example audio after the word", isOn: $autoPlayExampleAudio)
+            Toggle("Show word and meaning translations", isOn: $settings.showTranslations)
+            Toggle("Show example translations", isOn: $settings.showExampleTranslation)
+            Toggle("Auto-play example audio after the word", isOn: $settings.autoPlayExampleAudio)
 
             VStack(alignment: .leading, spacing: 8) {
-                Stepper("Word playback count: \(wordPlaybackCount)x", value: $wordPlaybackCount, in: 1...4)
+                Stepper("Word playback count: \(settings.wordPlaybackCount)x", value: $settings.wordPlaybackCount, in: 1...4)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -167,12 +162,12 @@ private extension SettingsView {
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Spacer()
-                        Text("\(String(format: "%.1f", wordPlaybackDelay))s")
+                        Text("\(String(format: "%.1f", settings.wordPlaybackDelay))s")
                             .font(.caption.monospacedDigit())
                             .foregroundColor(.secondary)
                     }
 
-                    Slider(value: $wordPlaybackDelay, in: 0.4...2.4, step: 0.1)
+                    Slider(value: $settings.wordPlaybackDelay, in: 0.4...2.4, step: 0.1)
                 }
             }
         }
@@ -198,6 +193,7 @@ private extension SettingsView {
             
             Link("Get API Key from Google AI Studio", destination: URL(string: "https://aistudio.google.com/app/apikey")!)
                 .font(.caption)
+                .accessibilityLabel("Open Google AI Studio API key page")
                 .pointingCursor()
         }
     }
@@ -227,6 +223,7 @@ private extension SettingsView {
             
             Link("Get API Key from Stability AI", destination: URL(string: "https://platform.stability.ai/account/keys")!)
                 .font(.caption)
+                .accessibilityLabel("Open Stability AI key page")
                 .pointingCursor()
         }
     }
@@ -238,6 +235,7 @@ private extension SettingsView {
                 dismiss()
             }
             .buttonStyle(BorderedProminentButtonStyle())
+            .accessibilityLabel("Close settings")
             .pointingCursor()
         }
     }
@@ -251,6 +249,8 @@ private extension SettingsView {
             geminiKey = try KeychainHelper.shared.read(for: KeychainHelper.geminiKey) ?? ""
             stabilityKey = try KeychainHelper.shared.read(for: KeychainHelper.stabilityKey) ?? ""
         } catch {
+            AppCrashReporter.shared.record(error, context: "load_keys")
+            AppLogger.settings.error("Failed to load API keys from keychain: \(error.localizedDescription)")
             presentInlineFeedback(
                 $feedback,
                 title: "Keychain Error",
@@ -270,6 +270,7 @@ private extension SettingsView {
             } else {
                 try KeychainHelper.shared.save(trimmedKey, for: KeychainHelper.geminiKey)
             }
+            AppTelemetry.shared.track(.settingsKeyUpdated(service: "gemini", cleared: trimmedKey.isEmpty))
             presentTransientInlineFeedback(
                 $feedback,
                 title: trimmedKey.isEmpty ? "Gemini Key Cleared" : "Gemini Key Saved",
@@ -277,6 +278,8 @@ private extension SettingsView {
                 style: .success
             )
         } catch {
+            AppCrashReporter.shared.record(error, context: "save_gemini_key")
+            AppLogger.settings.error("Failed to save Gemini key: \(error.localizedDescription)")
             presentInlineFeedback(
                 $feedback,
                 title: "Gemini Save Failed",
@@ -296,6 +299,7 @@ private extension SettingsView {
             } else {
                 try KeychainHelper.shared.save(trimmedKey, for: KeychainHelper.stabilityKey)
             }
+            AppTelemetry.shared.track(.settingsKeyUpdated(service: "stability", cleared: trimmedKey.isEmpty))
             presentTransientInlineFeedback(
                 $feedback,
                 title: trimmedKey.isEmpty ? "Stability Key Cleared" : "Stability Key Saved",
@@ -303,6 +307,8 @@ private extension SettingsView {
                 style: .success
             )
         } catch {
+            AppCrashReporter.shared.record(error, context: "save_stability_key")
+            AppLogger.settings.error("Failed to save Stability key: \(error.localizedDescription)")
             presentInlineFeedback(
                 $feedback,
                 title: "Stability Save Failed",
@@ -313,7 +319,7 @@ private extension SettingsView {
     }
 
     func selectNewLocation() {
-        StorageLocationPicker.present { url in
+        storageLocationPicker.chooseStorageLocation(prompt: "Select Storage Folder") { url in
             guard let url else { return }
 
             self.isChangingStorageLocation = true
@@ -323,6 +329,7 @@ private extension SettingsView {
                 do {
                     try repository.changeStorageLocation(to: url)
                     await MainActor.run {
+                        AppTelemetry.shared.track(.storageLocationChanged)
                         self.isChangingStorageLocation = false
                         presentInlineFeedback(
                             $feedback,
@@ -333,6 +340,8 @@ private extension SettingsView {
                     }
                 } catch {
                     await MainActor.run {
+                        AppCrashReporter.shared.record(error, context: "settings_storage_move")
+                        AppLogger.settings.error("Storage move from settings failed: \(error.localizedDescription)")
                         self.isChangingStorageLocation = false
                         presentInlineFeedback(
                             $feedback,

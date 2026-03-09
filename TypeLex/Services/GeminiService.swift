@@ -1,5 +1,4 @@
 import Foundation
-import AppKit
 
 enum GeminiError: Error {
     case invalidURL
@@ -9,7 +8,7 @@ enum GeminiError: Error {
     case apiError(String)
 }
 
-class GeminiService {
+class GeminiService: WordContentGenerating {
     // 使用 gemini-2.5-flash-lite 進行文字生成
     private let textModel = "gemini-2.5-flash-lite" 
     
@@ -43,9 +42,8 @@ class GeminiService {
     }
     
     /// Public wrapper for regenerating text info
-    func regenerateWordInfo(word: String) async throws -> (phonetic: String, translation: String?, meaning: String, meaningTranslation: String?, example: String, exampleTranslation: String) {
-        let info = try await fetchWordInfo(word: word)
-        return (info.phonetic, info.translation, info.meaning, info.meaningTranslation, info.example, info.exampleTranslation)
+    func regenerateWordInfo(word: String) async throws -> GeneratedWordInfo {
+        try await fetchWordInfo(word: word)
     }
     
     // MARK: - Text Generation
@@ -72,7 +70,7 @@ class GeminiService {
         let exampleTranslation: String
     }
     
-    internal func fetchWordInfo(word: String) async throws -> WordInfoJSON {
+    internal func fetchWordInfo(word: String) async throws -> GeneratedWordInfo {
         // Shared Prompt Construction
         let prompt = """
         You are a dictionary assistant. Provide the details for the English word: "\(word)".
@@ -133,7 +131,7 @@ class GeminiService {
     
     // MARK: - Provider Implementations
     
-    private func fetchWithGemini(prompt: String, key: String) async throws -> WordInfoJSON {
+    private func fetchWithGemini(prompt: String, key: String) async throws -> GeneratedWordInfo {
         let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(textModel):generateContent?key=\(key)"
         guard let url = URL(string: urlString) else { throw GeminiError.invalidURL }
         
@@ -158,7 +156,7 @@ class GeminiService {
         return try parseJSON(from: text)
     }
     
-    private func fetchWithPollinations(prompt: String) async throws -> WordInfoJSON {
+    private func fetchWithPollinations(prompt: String) async throws -> GeneratedWordInfo {
         // Endpoint: https://text.pollinations.ai/
         guard let url = URL(string: "https://text.pollinations.ai/") else { throw GeminiError.invalidURL }
         
@@ -195,7 +193,7 @@ class GeminiService {
         return try parseJSON(from: responseText)
     }
     
-    private func parseJSON(from text: String) throws -> WordInfoJSON {
+    private func parseJSON(from text: String) throws -> GeneratedWordInfo {
         // Clean Markdown (```json ... ```)
         let cleanText = text
             .replacingOccurrences(of: "```json", with: "")
@@ -203,7 +201,15 @@ class GeminiService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         
         guard let jsonData = cleanText.data(using: .utf8) else { throw GeminiError.parsingError }
-        return try JSONDecoder().decode(WordInfoJSON.self, from: jsonData)
+        let decoded = try JSONDecoder().decode(WordInfoJSON.self, from: jsonData)
+        return GeneratedWordInfo(
+            phonetic: decoded.phonetic,
+            translation: decoded.translation,
+            meaning: decoded.meaning,
+            meaningTranslation: decoded.meaningTranslation,
+            example: decoded.example,
+            exampleTranslation: decoded.exampleTranslation
+        )
     }
     
     // MARK: - Retry Logic

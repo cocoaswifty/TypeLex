@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 extension WordRepository {
     /// 儲存全新匯入的單字（含圖片處理）
@@ -17,7 +18,7 @@ extension WordRepository {
                 try data.write(to: fileURL)
                 newEntry.localImagePath = "media/\(fileName)"
             } catch {
-                print("❌ Failed to save word image: \(error)")
+                AppLogger.repository.error("Failed to save word image: \(error.localizedDescription)")
             }
         }
 
@@ -26,12 +27,13 @@ extension WordRepository {
 
     /// 新增或更新單字
     func addWord(_ word: WordEntry) {
-        if let index = words.firstIndex(where: { $0.word.lowercased() == word.word.lowercased() }) {
-            words[index] = mergeUserProgress(from: words[index], into: word)
-        } else {
-            words.append(word)
+        applyWordsMutation {
+            if let index = words.firstIndex(where: { $0.word.lowercased() == word.word.lowercased() }) {
+                words[index] = mergeUserProgress(from: words[index], into: word)
+            } else {
+                words.append(word)
+            }
         }
-        saveWords()
     }
 
     /// 更新單字圖片
@@ -54,26 +56,28 @@ extension WordRepository {
             words[index].localImagePath = "media/\(newFileName)"
             saveWords()
         } catch {
-            print("❌ Failed to update image: \(error)")
+            AppLogger.repository.error("Failed to update image: \(error.localizedDescription)")
         }
     }
 
     /// 更新單字文字資訊
     func updateWordInfo(for wordID: String, phonetic: String, translation: String?, meaning: String, meaningTranslation: String?, example: String, exampleTranslation: String, soundPath: String? = nil, soundMeaningPath: String? = nil, soundExamplePath: String? = nil) {
-        guard let index = words.firstIndex(where: { $0.id == wordID }) else { return }
+        guard words.contains(where: { $0.id == wordID }) else { return }
 
-        words[index].phonetic = phonetic
-        words[index].translation = translation
-        words[index].meaning = meaning
-        words[index].meaningTranslation = meaningTranslation
-        words[index].example = example
-        words[index].exampleTranslation = exampleTranslation
+        applyWordsMutation {
+            guard let index = words.firstIndex(where: { $0.id == wordID }) else { return }
 
-        if let soundPath { words[index].soundPath = soundPath }
-        if let soundMeaningPath { words[index].soundMeaningPath = soundMeaningPath }
-        if let soundExamplePath { words[index].soundExamplePath = soundExamplePath }
+            words[index].phonetic = phonetic
+            words[index].translation = translation
+            words[index].meaning = meaning
+            words[index].meaningTranslation = meaningTranslation
+            words[index].example = example
+            words[index].exampleTranslation = exampleTranslation
 
-        saveWords()
+            if let soundPath { words[index].soundPath = soundPath }
+            if let soundMeaningPath { words[index].soundMeaningPath = soundMeaningPath }
+            if let soundExamplePath { words[index].soundExamplePath = soundExamplePath }
+        }
     }
 
     /// Import Library from folder
@@ -84,90 +88,90 @@ extension WordRepository {
 
         let newWords = try LibraryImporter.importLibrary(from: folderURL, to: currentMediaFolder)
 
-        for var word in newWords {
-            if let path = word.localImagePath, !path.isEmpty { word.localImagePath = "media/\(path)" }
-            if let path = word.soundPath, !path.isEmpty { word.soundPath = "media/\(path)" }
-            if let path = word.soundMeaningPath, !path.isEmpty { word.soundMeaningPath = "media/\(path)" }
-            if let path = word.soundExamplePath, !path.isEmpty { word.soundExamplePath = "media/\(path)" }
+        applyWordsMutation {
+            for var word in newWords {
+                if let path = word.localImagePath, !path.isEmpty { word.localImagePath = "media/\(path)" }
+                if let path = word.soundPath, !path.isEmpty { word.soundPath = "media/\(path)" }
+                if let path = word.soundMeaningPath, !path.isEmpty { word.soundMeaningPath = "media/\(path)" }
+                if let path = word.soundExamplePath, !path.isEmpty { word.soundExamplePath = "media/\(path)" }
 
-            if let index = words.firstIndex(where: { $0.word.lowercased() == word.word.lowercased() }) {
-                words[index] = mergeUserProgress(from: words[index], into: word)
-            } else {
-                words.append(word)
+                if let index = words.firstIndex(where: { $0.word.lowercased() == word.word.lowercased() }) {
+                    words[index] = mergeUserProgress(from: words[index], into: word)
+                } else {
+                    words.append(word)
+                }
             }
         }
-
-        saveWords()
     }
 
     /// 切換收藏狀態
     func toggleFavorite(for wordID: String) {
-        if let index = words.firstIndex(where: { $0.id == wordID }) {
-            words[index].isFavorite.toggle()
-            saveWords()
+        guard words.contains(where: { $0.id == wordID }) else { return }
+        applyWordsMutation {
+            if let index = words.firstIndex(where: { $0.id == wordID }) {
+                words[index].isFavorite.toggle()
+            }
         }
     }
 
     /// 批量設定收藏狀態
     func setFavorite(_ isFavorite: Bool, for wordIDs: Set<String>) {
         guard !wordIDs.isEmpty else { return }
+        let hasChanges = words.contains { wordIDs.contains($0.id) && $0.isFavorite != isFavorite }
+        guard hasChanges else { return }
 
-        var didChange = false
-        for index in words.indices where wordIDs.contains(words[index].id) {
-            if words[index].isFavorite != isFavorite {
-                words[index].isFavorite = isFavorite
-                didChange = true
+        applyWordsMutation {
+            for index in words.indices where wordIDs.contains(words[index].id) {
+                if words[index].isFavorite != isFavorite {
+                    words[index].isFavorite = isFavorite
+                }
             }
-        }
-
-        if didChange {
-            saveWords()
         }
     }
 
     /// 根據答題結果更新遺忘曲線排程與錯誤統計
     func recordPracticeResult(for wordID: String, errorCount: Int, reviewedAt: Date = Date()) {
-        if let index = words.firstIndex(where: { $0.id == wordID }) {
-            let existingWord = words[index]
-            let wasNewWord = existingWord.lastReviewedAt == nil || existingWord.nextReviewAt == nil
-            let wasOverdue = (existingWord.nextReviewAt ?? .distantFuture) <= reviewedAt && existingWord.nextReviewAt != nil
+        applyRepositoryStateMutation {
+            if let index = words.firstIndex(where: { $0.id == wordID }) {
+                let existingWord = words[index]
+                let wasNewWord = existingWord.lastReviewedAt == nil || existingWord.nextReviewAt == nil
+                let wasOverdue = (existingWord.nextReviewAt ?? .distantFuture) <= reviewedAt && existingWord.nextReviewAt != nil
 
-            if errorCount > 0 {
-                let currentMistakes = words[index].mistakeCount ?? 0
-                words[index].mistakeCount = currentMistakes + errorCount
-            }
+                if errorCount > 0 {
+                    let currentMistakes = words[index].mistakeCount ?? 0
+                    words[index].mistakeCount = currentMistakes + errorCount
+                }
 
-            let currentStage = max(0, words[index].reviewStage ?? 0)
-            let nextStage: Int
-            let nextInterval: TimeInterval
+                let currentStage = max(0, words[index].reviewStage ?? 0)
+                let nextStage: Int
+                let nextInterval: TimeInterval
 
-            if errorCount == 0 {
-                nextStage = min(currentStage + 1, Self.forgettingCurveIntervals.count)
-                let intervalIndex = max(0, nextStage - 1)
-                nextInterval = Self.forgettingCurveIntervals[intervalIndex]
-            } else {
-                nextStage = max(currentStage - 1, 0)
-                nextInterval = Self.retryInterval(for: errorCount)
-            }
+                if errorCount == 0 {
+                    nextStage = min(currentStage + 1, Self.forgettingCurveIntervals.count)
+                    let intervalIndex = max(0, nextStage - 1)
+                    nextInterval = Self.forgettingCurveIntervals[intervalIndex]
+                } else {
+                    nextStage = max(currentStage - 1, 0)
+                    nextInterval = Self.retryInterval(for: errorCount)
+                }
 
-            words[index].reviewStage = nextStage
-            words[index].lastReviewedAt = reviewedAt
-            words[index].nextReviewAt = reviewedAt.addingTimeInterval(nextInterval)
+                words[index].reviewStage = nextStage
+                words[index].lastReviewedAt = reviewedAt
+                words[index].nextReviewAt = reviewedAt.addingTimeInterval(nextInterval)
 
-            reviewEvents.append(
-                ReviewEvent(
-                    wordID: existingWord.id,
-                    word: existingWord.word,
-                    reviewedAt: reviewedAt,
-                    errorCount: errorCount,
-                    wasSuccessful: errorCount == 0,
-                    resultingReviewStage: nextStage,
-                    wasNewWord: wasNewWord,
-                    wasOverdue: wasOverdue
+                reviewEvents.append(
+                    ReviewEvent(
+                        wordID: existingWord.id,
+                        word: existingWord.word,
+                        reviewedAt: reviewedAt,
+                        errorCount: errorCount,
+                        wasSuccessful: errorCount == 0,
+                        resultingReviewStage: nextStage,
+                        wasNewWord: wasNewWord,
+                        wasOverdue: wasOverdue
+                    )
                 )
-            )
-            saveWords()
-            saveReviewEvents()
+            }
         }
     }
 
@@ -213,17 +217,13 @@ extension WordRepository {
     func resetReviewProgress(for wordIDs: Set<String>) {
         guard !wordIDs.isEmpty else { return }
 
-        var didChange = false
-        for index in words.indices where wordIDs.contains(words[index].id) {
-            words[index].mistakeCount = 0
-            words[index].reviewStage = 0
-            words[index].lastReviewedAt = nil
-            words[index].nextReviewAt = nil
-            didChange = true
-        }
-
-        if didChange {
-            saveWords()
+        applyWordsMutation {
+            for index in words.indices where wordIDs.contains(words[index].id) {
+                words[index].mistakeCount = 0
+                words[index].reviewStage = 0
+                words[index].lastReviewedAt = nil
+                words[index].nextReviewAt = nil
+            }
         }
     }
 
@@ -236,8 +236,9 @@ extension WordRepository {
             }
         }
 
-        words.removeAll { wordIDs.contains($0.id) }
-        saveWords()
+        applyWordsMutation {
+            words.removeAll { wordIDs.contains($0.id) }
+        }
     }
 
     func mergeUserProgress(from existing: WordEntry, into incoming: WordEntry) -> WordEntry {

@@ -128,6 +128,55 @@ final class WordRepositoryTests: XCTestCase {
         XCTAssertEqual(repository.words[0].nextReviewAt?.timeIntervalSince1970, secondReview.addingTimeInterval(2 * 60).timeIntervalSince1970, accuracy: 1)
     }
 
+    func testRecordPracticeResultRollsBackWhenReviewEventPersistenceFails() throws {
+        let repository = makeRepository(performStartupTasks: false)
+        repository.createNewBook(name: "Default")
+        repository.addWord(
+            WordEntry(
+                word: "apple",
+                phonetic: nil,
+                translation: "蘋果",
+                meaning: "Apple is a fruit.",
+                meaningTranslation: nil,
+                example: nil,
+                exampleTranslation: nil,
+                imageName: nil,
+                localImagePath: nil,
+                soundPath: nil,
+                soundMeaningPath: nil,
+                soundExamplePath: nil,
+                isFavorite: false,
+                mistakeCount: 0,
+                reviewStage: 0,
+                lastReviewedAt: nil,
+                nextReviewAt: nil
+            )
+        )
+
+        let reviewEventsBlocker = repository.currentBookFolder.appendingPathComponent("review-events.json")
+        try FileManager.default.createDirectory(at: reviewEventsBlocker, withIntermediateDirectories: true)
+
+        repository.recordPracticeResult(
+            for: "apple",
+            errorCount: 0,
+            reviewedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        XCTAssertEqual(repository.reviewEvents.count, 0)
+        XCTAssertEqual(repository.words[0].reviewStage, 0)
+        XCTAssertNil(repository.words[0].lastReviewedAt)
+        XCTAssertNil(repository.words[0].nextReviewAt)
+
+        try FileManager.default.removeItem(at: reviewEventsBlocker)
+
+        let reloaded = makeRepository()
+        reloaded.loadBook(name: "Default")
+
+        XCTAssertEqual(reloaded.reviewEvents.count, 0)
+        XCTAssertEqual(reloaded.words[0].reviewStage, 0)
+        XCTAssertNil(reloaded.words[0].nextReviewAt)
+    }
+
     func testAddWordMergesExistingUserProgress() throws {
         let repository = makeRepository(performStartupTasks: false)
         repository.createNewBook(name: "Default")

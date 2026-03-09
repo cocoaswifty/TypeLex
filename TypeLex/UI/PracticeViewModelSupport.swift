@@ -1,6 +1,4 @@
-import AppKit
 import Foundation
-import UniformTypeIdentifiers
 
 enum PracticeMode: String, CaseIterable {
     case all = "All Words"
@@ -20,27 +18,6 @@ enum PracticeScreenState: Equatable {
     case ready
     case emptyLibrary
     case failure(title: String, message: String)
-}
-
-enum PracticeLibraryPicker {
-    static func present(
-        prompt: String,
-        message: String? = nil,
-        completion: @escaping (URL?) -> Void
-    ) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.folder, .zip]
-        panel.prompt = prompt
-        panel.message = message ?? ""
-
-        panel.begin { response in
-            completion(response == .OK ? panel.url : nil)
-        }
-    }
 }
 
 enum PracticeWordSelector {

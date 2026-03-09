@@ -2,11 +2,9 @@ import SwiftUI
 
 struct PracticeCardView: View {
     var vm: PracticeViewModel
+    @Bindable var settings: AppSettingsStore
     @Binding var showLargeImage: Bool
     var scale: CGFloat = 1.0
-
-    @AppStorage(PreferenceKeys.showTranslations) private var showTranslations = true
-    @AppStorage(PreferenceKeys.showExampleTranslation) private var showExampleTranslation = true
     
     var body: some View {
         VStack(spacing: 24 * scale) {
@@ -25,7 +23,7 @@ struct PracticeCardView: View {
             
             VStack(spacing: 0) {
                 // Translation
-                if showTranslations, let translation = vm.currentEntry.translation {
+                if settings.showTranslations, let translation = vm.currentEntry.translation {
                     Text(translation)
                         .font(.system(size: 28 * scale, weight: .regular))
                 }
@@ -56,7 +54,7 @@ struct PracticeCardView: View {
 private extension PracticeCardView {
     var definitionSection: some View {
         VStack(spacing: 8 * scale) {
-            if showTranslations, let meaningTranslation = vm.currentEntry.meaningTranslation {
+            if settings.showTranslations, let meaningTranslation = vm.currentEntry.meaningTranslation {
                 Text(meaningTranslation)
                     .font(.system(size: 16 * scale))
                     .foregroundColor(AppTheme.Colors.textSecondary)
@@ -78,6 +76,7 @@ private extension PracticeCardView {
                             .foregroundColor(.secondary.opacity(0.8))
                     }
                     .buttonStyle(PlainButtonStyle())
+                    .accessibilityLabel("Play meaning audio")
                     .pointingCursor()
                 }
             }
@@ -106,6 +105,7 @@ private extension PracticeCardView {
                     .foregroundColor(.secondary.opacity(0.8))
             }
             .buttonStyle(PlainButtonStyle())
+            .accessibilityLabel("Play word audio")
             .pointingCursor()
         }
         .padding(.horizontal, 20 * scale)
@@ -133,10 +133,11 @@ private extension PracticeCardView {
                                 .foregroundColor(.secondary.opacity(0.8))
                         }
                         .buttonStyle(PlainButtonStyle())
+                        .accessibilityLabel("Play example audio")
                         .pointingCursor()
                     }
                     
-                    if showExampleTranslation, let translation = vm.currentEntry.exampleTranslation {
+                    if settings.showExampleTranslation, let translation = vm.currentEntry.exampleTranslation {
                         Text(translation)
                             .font(.system(size: 18 * scale))
                             .foregroundColor(.secondary.opacity(0.8))

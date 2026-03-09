@@ -6,7 +6,7 @@ enum ImageProvider {
     case stabilityAI
 }
 
-class ImageService {
+class ImageService: ImageGenerating {
     static let shared = ImageService()
     
     // Stability AI SDXL Endpoint

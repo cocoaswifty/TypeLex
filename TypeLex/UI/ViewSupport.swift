@@ -38,6 +38,7 @@ struct StorageLocationSummaryView: View {
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundColor(.blue)
                 .textSelection(.enabled)
+                .accessibilityLabel("Storage path")
                 .contextMenu {
                     Button("Copy Path") {
                         NSPasteboard.general.clearContents()
@@ -68,21 +69,6 @@ struct StorageLocationSummaryView: View {
 enum StorageLocationButtonKind {
     case link
     case bordered
-}
-
-enum StorageLocationPicker {
-    static func present(prompt: String = "Select Storage Folder", completion: @escaping (URL?) -> Void) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = prompt
-
-        panel.begin { response in
-            completion(response == .OK ? panel.url : nil)
-        }
-    }
 }
 
 @MainActor

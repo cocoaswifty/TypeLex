@@ -34,6 +34,7 @@ struct TopToolbarView: View {
             }
             .buttonStyle(IconicButtonStyle())
             .help("Switch Word Book")
+            .accessibilityLabel(AppStrings.switchWordBook)
             
             // 右側設定
             HStack(spacing: 24) {
@@ -75,6 +76,7 @@ struct BottomStatusBarView: View {
                 .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
             }
             .buttonStyle(PlainButtonStyle())
+            .accessibilityLabel("Change practice mode")
             .contextMenu {
                 Button("Practice All Words") { localPracticeMode = .all }
                 Button("Practice Favorites Only") { localPracticeMode = .favorites }
@@ -99,6 +101,7 @@ struct BottomStatusBarView: View {
                 .overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
             }
             .buttonStyle(PlainButtonStyle())
+            .accessibilityLabel(isFavorite ? "Remove favorite" : "Mark current word as favorite")
         }
         .padding(.horizontal, 40)
         .padding(.top, 16)
@@ -136,6 +139,7 @@ struct LargeImageOverlay: View {
         .onTapGesture {
             withAnimation(.spring()) { isPresented = false }
         }
+        .accessibilityAddTraits(.isModal)
         .task(id: entry.id) {
             if let localPath = entry.localImagePath {
                 let fileURL = repository.resolveFileURL(for: localPath)
@@ -166,5 +170,6 @@ struct ToolbarIconButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(IconicButtonStyle(foregroundColor: .secondary))
+        .accessibilityLabel(title)
     }
 }

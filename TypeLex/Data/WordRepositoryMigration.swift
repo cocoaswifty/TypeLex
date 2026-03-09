@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 struct WordRepositoryMigration {
     let fileManager: FileManager
@@ -49,7 +50,7 @@ struct WordRepositoryMigration {
                 }
             }
         } catch {
-            print("⚠️ Migration failed: \(error)")
+            AppLogger.migration.warning("File structure migration failed: \(error.localizedDescription)")
         }
     }
 
@@ -67,7 +68,7 @@ struct WordRepositoryMigration {
             try fileManager.moveItem(at: oldURL, to: targetURL)
             return true
         } catch {
-            print("❌ Failed to move media \(filename): \(error)")
+            AppLogger.migration.error("Failed to move media \(filename, privacy: .public): \(error.localizedDescription)")
             return false
         }
     }
@@ -89,7 +90,7 @@ struct WordRepositoryMigration {
                 }
             }
         } catch {
-            print("⚠️ Migration failed: \(error)")
+            AppLogger.migration.warning("JSON to CSV migration failed: \(error.localizedDescription)")
         }
     }
 }

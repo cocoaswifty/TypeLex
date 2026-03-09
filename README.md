@@ -58,14 +58,17 @@ Documents/
 *   **平台**：macOS 14.0+
 *   **語言**：Swift 5.10+
 *   **UI 框架**：SwiftUI (Modern Declarative Architecture)
-    *   **併發安全與單例服務**：採用 **Singleton 模式** 管理 `SpeechService`，確保全域音效輸出的互斥性；ViewModel 全面採用 `@MainActor` 標記，確保所有 UI 狀態更新均在主線程安全執行。
+    *   **併發安全與主執行緒狀態**：`PracticeViewModel`、`SpeechService`、`AppRouter`、`AppSettingsStore` 以 `@MainActor`/Observation 管理 UI 狀態與互動流程。
     *   **@Observable 驅動**：全面採用 macOS 14 導入的 Observation 框架，精確追蹤屬性依賴，實現微秒級的視圖局部更新。
     *   **TypingEngine 狀態機**：純 Swift 邏輯層，完全分離 UI 狀態與打字演算法，易於測試與維護。
-    *   **模組化拆分**：資料層已拆成 storage / migration / stats / operations；UI 層已拆出 shared view support、word list support、practice effect support。
+    *   **模組化拆分**：資料層已拆成 storage / migration / stats / operations / recovery；UI 層已拆出 shared view support、word list support、practice effect support。
+    *   **路由與設定集中管理**：以 `AppRouter` 統一 sheet/overlay 狀態，以 `AppSettingsStore` 集中偏好設定，不再散落 `NotificationCenter` 與 `@AppStorage`。
+    *   **Service Boundary**：`OpenPanel`、speech、文字生成、圖片生成、telemetry/crash reporting 都透過 protocol 注入，降低 ViewModel 與系統 API / provider 的耦合。
 *   **AI 模型**：
     *   **Text**: Gemini 2.5 Flash Lite + Pollinations AI (Keyless Fallback)
     *   **Image**: Pollinations AI + Stability AI SDXL (High-quality Fallback)
 *   **資料儲存**：高效能 CSV + review-events JSON，支援多單詞本切換與 Security-Scoped 儲存權限。
+*   **診斷能力**：內建 `OSLog` category-based logging，並預留 telemetry / crash reporting boundary，方便之後接 Sentry 或 Crashlytics。
 
 ## 🧱 專案結構
 
@@ -77,10 +80,17 @@ TypeLex/
 │   ├── WordRepositoryMigration.swift
 │   ├── WordRepositoryStats.swift
 │   ├── WordRepositoryOperations.swift
+│   ├── WordRepositoryRecovery.swift
 │   ├── WordEntry.swift
 │   ├── ReviewEvent.swift
-│   └── PracticePreferences.swift
+│   ├── PracticePreferences.swift
+│   └── AppSettingsStore.swift
 ├── Services/
+│   ├── AppPanelService.swift
+│   ├── AppServices.swift
+│   ├── GeminiService.swift
+│   ├── ImageService.swift
+│   └── SpeechService.swift
 ├── UI/
 │   ├── PracticeView.swift
 │   ├── PracticeViewModel.swift
@@ -90,7 +100,10 @@ TypeLex/
 │   ├── WordListSupport.swift
 │   ├── WordListRowViews.swift
 │   └── ViewSupport.swift
+├── AppRouter.swift
 └── Utilities/
+    ├── AppLogger.swift
+    └── AppStrings.swift
 ```
 
 ## 🚀 如何開始
@@ -123,6 +136,7 @@ TypeLex/
 
 *   CSV 讀寫與舊資料 migration
 *   forgetting-curve review scheduling
+*   transaction-like rollback / persistence failure recovery
 *   `mergeUserProgress`
 *   `importLibrary` merge/path rewrite
 *   `changeStorageLocation`

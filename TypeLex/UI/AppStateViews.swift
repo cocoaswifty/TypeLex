@@ -74,7 +74,7 @@ struct OnboardingView: View {
                         .font(.system(size: 52))
                         .foregroundStyle(AppTheme.Colors.primaryGradient)
 
-                    Text("Set Up TypeLex")
+                    Text(AppStrings.onboardingTitle)
                         .font(.system(size: 32, weight: .bold, design: .rounded))
 
                     Text("Start with the built-in library, import your own, or skip API setup for now.")
@@ -147,7 +147,7 @@ struct KeyboardShortcutHelpView: View {
             VStack(alignment: .leading, spacing: 22) {
                 HStack {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Keyboard Shortcuts")
+                        Text(AppStrings.keyboardShortcutsTitle)
                             .font(.system(size: 28, weight: .bold, design: .rounded))
                         Text("Core controls for practice and library management.")
                             .font(.subheadline)
@@ -162,6 +162,7 @@ struct KeyboardShortcutHelpView: View {
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(PlainButtonStyle())
+                    .accessibilityLabel("Close keyboard shortcuts")
                     .pointingCursor()
                 }
 
@@ -243,6 +244,7 @@ struct InlineFeedbackView: View {
                     .foregroundColor(.secondary)
             }
             .buttonStyle(PlainButtonStyle())
+            .accessibilityLabel("Dismiss message")
             .pointingCursor()
         }
         .padding(12)

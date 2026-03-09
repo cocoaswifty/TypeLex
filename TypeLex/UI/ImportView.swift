@@ -1,9 +1,13 @@
 import SwiftUI
+import OSLog
 
 struct ImportView: View {
     @Environment(\.dismiss) var dismiss
     var repository: WordRepository
-    private let geminiService = GeminiService()
+    let contentGenerator: WordContentGenerating = GeminiService()
+    let imageGenerator: ImageGenerating = ImageService.shared
+    let storageLocationPicker: StorageLocationPicking = AppPanelService()
+    let telemetry: TelemetryTracking = AppTelemetry.shared
     
     @State private var inputText: String = ""
     @State private var isProcessing: Bool = false
@@ -40,7 +44,7 @@ struct ImportView: View {
 private extension ImportView {
     var headerSection: some View {
         VStack(spacing: 8) {
-            Text("Import Words")
+            Text(AppStrings.importWordsTitle)
                 .font(.title)
                 .fontWeight(.bold)
             
@@ -58,6 +62,8 @@ private extension ImportView {
             .cornerRadius(8)
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.gray.opacity(0.3), lineWidth: 1))
             .frame(minHeight: 150)
+            .accessibilityLabel("Words to import")
+            .accessibilityHint("Enter one English word per line")
             .disabled(isProcessing)
     }
 
@@ -100,6 +106,7 @@ private extension ImportView {
                 dismiss()
             }
             .disabled(isProcessing)
+            .accessibilityLabel("Cancel import")
             .pointingCursor()
             
             Button("Import & Generate") {
@@ -107,6 +114,7 @@ private extension ImportView {
             }
             .buttonStyle(BorderedProminentButtonStyle())
             .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isProcessing)
+            .accessibilityLabel("Import and generate content")
             .pointingCursor()
         }
     }
@@ -116,7 +124,7 @@ private extension ImportView {
 
 private extension ImportView {
     func selectNewLocation() {
-        StorageLocationPicker.present { url in
+        storageLocationPicker.chooseStorageLocation(prompt: "Select Storage Folder") { url in
             guard let url else { return }
 
             self.isProcessing = true
@@ -129,6 +137,7 @@ private extension ImportView {
                     try repository.changeStorageLocation(to: url)
 
                     await MainActor.run {
+                        telemetry.track(.storageLocationChanged)
                         presentInlineFeedback(
                             $feedback,
                             title: "Storage Updated",
@@ -139,6 +148,8 @@ private extension ImportView {
                     }
                 } catch {
                     await MainActor.run {
+                        AppCrashReporter.shared.record(error, context: "import_view_storage_move")
+                        AppLogger.settings.error("Storage move from import view failed: \(error.localizedDescription)")
                         presentInlineFeedback(
                             $feedback,
                             title: "Storage Move Failed",
@@ -163,6 +174,7 @@ private extension ImportView {
         isProcessing = true
         feedback = nil
         let totalCount = words.count
+        telemetry.track(.libraryImportStarted(totalWords: totalCount))
         
         Task {
             var hasError = false
@@ -178,6 +190,7 @@ private extension ImportView {
             await MainActor.run {
                 isProcessing = false
                 if !hasError {
+                    telemetry.track(.libraryImportCompleted(totalWords: totalCount))
                     dismiss()
                 }
             }
@@ -207,14 +220,14 @@ private extension ImportView {
         
         do {
             // 1. Generate Text (Gemini)
-            let info = try await geminiService.fetchWordInfo(word: word)
+            let info = try await contentGenerator.fetchWordInfo(word: word)
             
             await MainActor.run {
                 progressMessage = "\(prefix) Generating illustration (Pollinations/Stability)..."
             }
             
             // 2. Generate Image (ImageService)
-            let imageData = try await ImageService.shared.generateImage(context: info.example)
+            let imageData = try await imageGenerator.generateImage(context: info.example)
             
             await MainActor.run {
                 progressMessage = "\(prefix) Saving..."
@@ -241,6 +254,9 @@ private extension ImportView {
             
         } catch {
             await MainActor.run {
+                AppCrashReporter.shared.record(error, context: "manual_word_import")
+                AppLogger.app.error("Word import failed for \(word, privacy: .public): \(error.localizedDescription)")
+                telemetry.track(.libraryImportFailed(word: word, reason: error.localizedDescription))
                 if let geminiError = error as? GeminiError {
                     switch geminiError {
                     case .missingApiKey:

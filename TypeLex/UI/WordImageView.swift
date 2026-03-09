@@ -28,6 +28,7 @@ struct WordImageView: View {
                     // Apply clipShape directly on the image for proper corner clipping
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .transition(.opacity.animation(.easeInOut))
+                    .accessibilityLabel("\(entry.word) illustration")
             } else {
                 Rectangle()
                     .fill(Color.gray.opacity(0.1))
@@ -62,6 +63,8 @@ struct WordImageView: View {
             }
         }
         .onTapGesture { withAnimation(.spring()) { showLargeImage = true } }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens a larger preview of the word image")
         .pointingCursor()
         .task(id: entry.id) {
             await loadImage()

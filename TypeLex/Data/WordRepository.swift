@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 
 /// 管理單字資料的儲存、持久化與路徑管理
 @Observable
@@ -121,7 +122,7 @@ class WordRepository {
         do {
             self.availableBooks = try storageSupport.refreshAvailableBooks()
         } catch {
-            print("❌ Failed to list books: \(error)")
+            AppLogger.repository.error("Failed to list books: \(error.localizedDescription)")
             self.availableBooks = []
         }
     }
@@ -134,24 +135,24 @@ class WordRepository {
         
         // 檢查資料夾與檔案是否存在
         if !fileManager.fileExists(atPath: fileURL.path) {
-            print("⚠️ Book \(name) not found at \(fileURL.path).")
+            AppLogger.repository.warning("Book \(name, privacy: .public) not found at \(fileURL.path, privacy: .public)")
             shouldCreate = true
         } else {
             // 檢查檔案大小
             if let attr = try? fileManager.attributesOfItem(atPath: fileURL.path),
                let size = attr[.size] as? UInt64, size == 0 {
-                print("⚠️ Book \(name) is empty. Treating as missing.")
+                AppLogger.repository.warning("Book \(name, privacy: .public) is empty and will be treated as missing")
                 shouldCreate = true
             }
         }
         
         if shouldCreate {
             if name == defaultBookName {
-                print("⚠️ Default book missing. Creating new Default book.")
+                AppLogger.repository.warning("Default book missing. Recreating default book")
                 createNewBook(name: defaultBookName)
                 return
             } else {
-                print("⚠️ Fallback to Default.")
+                AppLogger.repository.warning("Falling back to default book")
                 loadBook(name: defaultBookName)
                 return
             }
@@ -165,12 +166,12 @@ class WordRepository {
             self.words = try storageSupport.loadWords(fromBookNamed: name)
             self.reviewEvents = storageSupport.loadReviewEvents(fromBookNamed: name)
         } catch {
-            print("❌ Load Error for \(name): \(error). Fallback to empty list.")
+            AppLogger.repository.error("Failed to load book \(name, privacy: .public): \(error.localizedDescription)")
             self.words = []
             self.reviewEvents = []
             
             if name == defaultBookName {
-                print("⚠️ Default book corrupted. Re-creating.")
+                AppLogger.repository.warning("Default book appears corrupted and will be recreated")
                 createNewBook(name: defaultBookName)
             }
         }
@@ -183,12 +184,12 @@ class WordRepository {
         do {
             let created = try ensureBookExists(named: name)
             if !created {
-                print("⚠️ Book csv already exists.")
+                AppLogger.repository.warning("Book CSV already exists for \(name, privacy: .public)")
             }
             loadBook(name: name)
             refreshAvailableBooks()
         } catch {
-            print("❌ Failed to create book: \(error)")
+            AppLogger.repository.error("Failed to create book \(name, privacy: .public): \(error.localizedDescription)")
         }
     }
     
@@ -207,7 +208,7 @@ class WordRepository {
                 refreshAvailableBooks()
             }
         } catch {
-            print("❌ Failed to delete book: \(error)")
+            AppLogger.repository.error("Failed to delete book \(name, privacy: .public): \(error.localizedDescription)")
         }
     }
     
@@ -274,7 +275,7 @@ class WordRepository {
                 }
             }
         } catch {
-            print("⚠️ Failed to restore storage bookmark: \(error)")
+            AppLogger.storage.warning("Failed to restore storage bookmark: \(error.localizedDescription)")
         }
     }
     
@@ -305,7 +306,7 @@ class WordRepository {
         do {
             try storageSupport.saveWords(words, toBookNamed: currentBookName)
         } catch {
-            print("❌ Persistence Error: \(error)")
+            AppLogger.repository.error("Word persistence failed: \(error.localizedDescription)")
         }
     }
 
@@ -318,7 +319,7 @@ class WordRepository {
         do {
             try storageSupport.saveReviewEvents(reviewEvents, toBookNamed: currentBookName)
         } catch {
-            print("❌ Failed to persist review events: \(error)")
+            AppLogger.repository.error("Review event persistence failed: \(error.localizedDescription)")
         }
     }
 }

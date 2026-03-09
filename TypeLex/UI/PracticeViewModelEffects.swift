@@ -1,9 +1,10 @@
 import Foundation
+import OSLog
 
 extension PracticeViewModel {
     /// Load the built-in default library (@4000 Words)
     func loadDefaultLibrary(completion: ((Bool) -> Void)? = nil) {
-        PracticeLibraryPicker.present(
+        libraryPicker.chooseLibrary(
             prompt: "Select Library",
             message: "Please select the folder or ZIP file containing the library data."
         ) { url in
@@ -18,7 +19,7 @@ extension PracticeViewModel {
 
     /// Import a custom library from a folder
     func importCustomLibrary(completion: ((Bool) -> Void)? = nil) {
-        PracticeLibraryPicker.present(prompt: "Import Library") { url in
+        libraryPicker.chooseLibrary(prompt: "Import Library", message: nil) { url in
             self.handleLibrarySelection(
                 from: url,
                 failureTitle: "Import Failed",
@@ -93,7 +94,7 @@ extension PracticeViewModel {
 
         Task {
             do {
-                if let imageData = try await geminiService.regenerateImage(for: targetEntry) {
+                if let imageData = try await contentGenerator.regenerateImage(for: targetEntry) {
                     repository.updateImage(for: targetEntry.id, imageData: imageData)
                     refreshCurrentEntry(ifMatching: targetEntry.id)
                 } else {
@@ -115,7 +116,7 @@ extension PracticeViewModel {
 
         Task {
             do {
-                let info = try await geminiService.regenerateWordInfo(word: targetEntry.word)
+                let info = try await contentGenerator.regenerateWordInfo(word: targetEntry.word)
 
                 repository.updateWordInfo(
                     for: targetEntry.id,
@@ -151,6 +152,8 @@ extension PracticeViewModel {
             refreshQueue()
             completion?(true)
         } catch {
+            AppCrashReporter.shared.record(error, context: "library_import")
+            AppLogger.app.error("Library import failed: \(error.localizedDescription)")
             presentLibraryImportFailure(
                 title: failureTitle,
                 message: failureMessage,

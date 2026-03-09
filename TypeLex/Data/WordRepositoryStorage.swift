@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 struct WordRepositoryStorage {
     let fileManager: FileManager
@@ -95,7 +96,7 @@ struct WordRepositoryStorage {
             decoder.dateDecodingStrategy = .iso8601
             return try decoder.decode([ReviewEvent].self, from: data)
         } catch {
-            print("⚠️ Failed to load review events: \(error)")
+            AppLogger.repository.warning("Failed to load review events: \(error.localizedDescription)")
             return []
         }
     }

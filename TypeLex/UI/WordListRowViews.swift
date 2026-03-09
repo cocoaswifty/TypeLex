@@ -3,7 +3,7 @@ import SwiftUI
 struct WordRowView: View {
     let entry: WordEntry
     let repository: WordRepository
-    private let speechService = SpeechService.shared
+    private let speechService: SpeechPlaying = SpeechService.shared
     
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -178,6 +178,7 @@ struct AudioButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
+        .accessibilityLabel("Play audio")
         .pointingCursor()
     }
 }

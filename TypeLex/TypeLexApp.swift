@@ -2,60 +2,69 @@ import SwiftUI
 
 @main
 struct TypeLexApp: App {
-    @State private var vm = PracticeViewModel()
+    @State private var router: AppRouter
+    @State private var settings: AppSettingsStore
+    @State private var vm: PracticeViewModel
+
+    init() {
+        let settings = AppSettingsStore()
+        let panelService = AppPanelService()
+        _router = State(initialValue: AppRouter())
+        _settings = State(initialValue: settings)
+        _vm = State(
+            initialValue: PracticeViewModel(
+                userDefaults: settings.userDefaults,
+                libraryPicker: panelService,
+                contentGenerator: GeminiService(),
+                speechService: SpeechService.shared,
+                telemetry: AppTelemetry.shared
+            )
+        )
+    }
     
     var body: some Scene {
         WindowGroup {
-            PracticeView(vm: vm)
+            PracticeView(vm: vm, router: router, settings: settings)
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
             SidebarCommands()
 
             CommandGroup(replacing: .appSettings) {
-                Button("Settings...") {
-                    NotificationCenter.default.post(name: .typeLexOpenSettings, object: nil)
+                Button("\(AppStrings.settingsTitle)...") {
+                    router.open(.settings)
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
 
             CommandMenu("Practice") {
-                Button("Import Library") {
-                    NotificationCenter.default.post(name: .typeLexOpenImportLibrary, object: nil)
+                Button(AppStrings.importLibrary) {
+                    router.open(.importLibrary)
                 }
                 .keyboardShortcut("i", modifiers: .command)
 
-                Button("Word List") {
-                    NotificationCenter.default.post(name: .typeLexOpenWordList, object: nil)
+                Button(AppStrings.wordList) {
+                    router.open(.wordList)
                 }
                 .keyboardShortcut("l", modifiers: .command)
 
                 Button("Switch Books") {
-                    NotificationCenter.default.post(name: .typeLexOpenBookManager, object: nil)
+                    router.open(.bookManager)
                 }
                 .keyboardShortcut("b", modifiers: .command)
 
                 Divider()
 
-                Button("Learning Stats") {
-                    NotificationCenter.default.post(name: .typeLexOpenStats, object: nil)
+                Button(AppStrings.learningStats) {
+                    router.open(.stats)
                 }
                 .keyboardShortcut("9", modifiers: .command)
 
-                Button("Keyboard Shortcuts") {
-                    NotificationCenter.default.post(name: .typeLexShowShortcutHelp, object: nil)
+                Button(AppStrings.keyboardShortcutsTitle) {
+                    router.presentShortcutHelp()
                 }
                 .keyboardShortcut("/", modifiers: .command)
             }
         }
     }
-}
-
-extension Notification.Name {
-    static let typeLexOpenImportLibrary = Notification.Name("TypeLex.OpenImportLibrary")
-    static let typeLexOpenWordList = Notification.Name("TypeLex.OpenWordList")
-    static let typeLexOpenSettings = Notification.Name("TypeLex.OpenSettings")
-    static let typeLexOpenBookManager = Notification.Name("TypeLex.OpenBookManager")
-    static let typeLexOpenStats = Notification.Name("TypeLex.OpenStats")
-    static let typeLexShowShortcutHelp = Notification.Name("TypeLex.ShowShortcutHelp")
 }

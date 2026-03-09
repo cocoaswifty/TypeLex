@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 import Observation
 
 @Observable
@@ -22,9 +22,11 @@ class PracticeViewModel {
     // MARK: - Dependencies
     
     let repository = WordRepository() // Public for ImportView access
-    let geminiService = GeminiService() // Need access for regeneration
-    let speechService = SpeechService.shared
+    let contentGenerator: WordContentGenerating
+    let speechService: SpeechPlaying
+    let telemetry: TelemetryTracking
     let userDefaults: UserDefaults
+    let libraryPicker: LibraryPicking
     
     private var history: [WordEntry] = []
     var speechTask: Task<Void, Never>?
@@ -35,8 +37,18 @@ class PracticeViewModel {
     
     // MARK: - Initialization
     
-    init(userDefaults: UserDefaults = .standard) {
+    init(
+        userDefaults: UserDefaults = .standard,
+        libraryPicker: LibraryPicking? = nil,
+        contentGenerator: WordContentGenerating? = nil,
+        speechService: SpeechPlaying? = nil,
+        telemetry: TelemetryTracking? = nil
+    ) {
         self.userDefaults = userDefaults
+        self.libraryPicker = libraryPicker ?? AppPanelService()
+        self.contentGenerator = contentGenerator ?? GeminiService()
+        self.speechService = speechService ?? SpeechService.shared
+        self.telemetry = telemetry ?? AppTelemetry.shared
         let preferences = PracticePreferences.load(using: userDefaults)
         self.practiceMode = PracticeMode(rawValue: preferences.defaultPracticeMode) ?? .all
 
@@ -118,6 +130,7 @@ class PracticeViewModel {
     // MARK: - Private Logic
     
     private func finishCurrentWord() {
+        telemetry.track(.practiceCompleted(word: currentEntry.word, errorCount: engine.errorCount))
         repository.recordPracticeResult(for: currentEntry.id, errorCount: engine.errorCount)
         
         guard !isTransitioning else { return }
