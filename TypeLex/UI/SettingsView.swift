@@ -8,6 +8,8 @@ struct SettingsView: View {
     @State private var stabilityKey: String = ""
     @State private var isGeminiSaved: Bool = false
     @State private var isStabilitySaved: Bool = false
+    @State private var keychainErrorMessage: String?
+    @State private var showKeychainError: Bool = false
     
     // UI Scale setting (persisted)
     @AppStorage("userUIScale") private var userUIScale: Double = 1.0
@@ -28,6 +30,11 @@ struct SettingsView: View {
         .frame(width: 450)
         .onAppear {
             loadKeys()
+        }
+        .alert("Keychain Error", isPresented: $showKeychainError) {
+            Button("OK") {}
+        } message: {
+            Text(keychainErrorMessage ?? "Unknown keychain error.")
         }
     }
 }
@@ -85,7 +92,7 @@ private extension SettingsView {
             Text("Google Gemini API Key")
                 .font(.headline)
             
-            Text("Required for AI word generation (definitions & sentences).")
+            Text("Optional. If empty, word definitions fall back to Pollinations AI.")
                 .font(.caption)
                 .foregroundColor(.secondary)
             
@@ -96,11 +103,10 @@ private extension SettingsView {
                 Button("Save") {
                     saveGeminiKey()
                 }
-                .disabled(geminiKey.isEmpty)
             }
             
             if isGeminiSaved {
-                Text("✅ Gemini Key saved")
+                Text(geminiKey.isEmpty ? "✅ Gemini Key cleared" : "✅ Gemini Key saved")
                     .font(.caption)
                     .foregroundColor(.green)
                     .transition(.opacity)
@@ -170,23 +176,27 @@ private extension SettingsView {
 
 private extension SettingsView {
     func loadKeys() {
-        if let key = KeychainHelper.shared.read(for: KeychainHelper.geminiKey) {
-            geminiKey = key
-        }
-        if let key = KeychainHelper.shared.read(for: KeychainHelper.stabilityKey) {
-            stabilityKey = key
+        do {
+            geminiKey = try KeychainHelper.shared.read(for: KeychainHelper.geminiKey) ?? ""
+            stabilityKey = try KeychainHelper.shared.read(for: KeychainHelper.stabilityKey) ?? ""
+        } catch {
+            presentKeychainError(error)
         }
     }
     
     func saveGeminiKey() {
-        guard !geminiKey.isEmpty else { return }
-        KeychainHelper.shared.save(geminiKey, for: KeychainHelper.geminiKey)
-        withAnimation { isGeminiSaved = true }
-        
-        // Auto hide success message
-        Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            withAnimation { isGeminiSaved = false }
+        let trimmedKey = geminiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        geminiKey = trimmedKey
+
+        do {
+            if trimmedKey.isEmpty {
+                try KeychainHelper.shared.delete(for: KeychainHelper.geminiKey)
+            } else {
+                try KeychainHelper.shared.save(trimmedKey, for: KeychainHelper.geminiKey)
+            }
+            showTransientSaveState(for: .gemini)
+        } catch {
+            presentKeychainError(error)
         }
     }
     
@@ -194,16 +204,46 @@ private extension SettingsView {
         let trimmedKey = stabilityKey.trimmingCharacters(in: .whitespacesAndNewlines)
         stabilityKey = trimmedKey
 
-        if trimmedKey.isEmpty {
-            KeychainHelper.shared.delete(for: KeychainHelper.stabilityKey)
-        } else {
-            KeychainHelper.shared.save(trimmedKey, for: KeychainHelper.stabilityKey)
-        }
-        withAnimation { isStabilitySaved = true }
-        
-        Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            withAnimation { isStabilitySaved = false }
+        do {
+            if trimmedKey.isEmpty {
+                try KeychainHelper.shared.delete(for: KeychainHelper.stabilityKey)
+            } else {
+                try KeychainHelper.shared.save(trimmedKey, for: KeychainHelper.stabilityKey)
+            }
+            showTransientSaveState(for: .stability)
+        } catch {
+            presentKeychainError(error)
         }
     }
+
+    func presentKeychainError(_ error: Error) {
+        keychainErrorMessage = error.localizedDescription
+        showKeychainError = true
+    }
+
+    func showTransientSaveState(for keyType: SavedKeyType) {
+        switch keyType {
+        case .gemini:
+            withAnimation { isGeminiSaved = true }
+        case .stability:
+            withAnimation { isStabilitySaved = true }
+        }
+
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            withAnimation {
+                switch keyType {
+                case .gemini:
+                    isGeminiSaved = false
+                case .stability:
+                    isStabilitySaved = false
+                }
+            }
+        }
+    }
+}
+
+private enum SavedKeyType {
+    case gemini
+    case stability
 }

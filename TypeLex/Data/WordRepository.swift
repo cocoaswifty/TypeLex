@@ -12,6 +12,9 @@ class WordRepository {
     
     private let extensionName = "csv"
     private let defaultBookName = "Default"
+    private let fileManager: FileManager
+    private let userDefaults: UserDefaults
+    private let storageDirectoryOverride: URL?
     private static let forgettingCurveIntervals: [TimeInterval] = [
         5 * 60,
         30 * 60,
@@ -29,9 +32,10 @@ class WordRepository {
     
     /// 目前的儲存根目錄 (預設為 ~/Downloads/TypeLexLibrary)
     var storageDirectory: URL {
+        if let storageDirectoryOverride { return storageDirectoryOverride }
         if let custom = customStorageURL { return custom }
         
-        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        let downloads = fileManager.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
         return downloads.appendingPathComponent("TypeLexLibrary")
     }
     
@@ -57,14 +61,30 @@ class WordRepository {
     
     // MARK: - Initialization
     
-    init() {
-        restoreSecurityScopedAccess()
-        
-        // 遷移舊版結構
-        migrateFileStructure()
+    init(
+        storageDirectoryOverride: URL? = nil,
+        userDefaults: UserDefaults = .standard,
+        fileManager: FileManager = .default,
+        performStartupTasks: Bool = true
+    ) {
+        self.storageDirectoryOverride = storageDirectoryOverride
+        self.userDefaults = userDefaults
+        self.fileManager = fileManager
+
+        if let storageDirectoryOverride, !fileManager.fileExists(atPath: storageDirectoryOverride.path) {
+            try? fileManager.createDirectory(at: storageDirectoryOverride, withIntermediateDirectories: true)
+        }
+
+        if performStartupTasks && storageDirectoryOverride == nil {
+            restoreSecurityScopedAccess()
+        }
+
+        if performStartupTasks {
+            migrateFileStructure()
+        }
         
         // 載入上次使用的單詞本，或是預設本
-        let lastBook = UserDefaults.standard.string(forKey: "LastOpenBook") ?? defaultBookName
+        let lastBook = userDefaults.string(forKey: "LastOpenBook") ?? defaultBookName
         loadBook(name: lastBook)
         
         refreshAvailableBooks()
@@ -88,17 +108,17 @@ class WordRepository {
     /// 刷新可用單詞本列表 (掃描資料夾)
     private func refreshAvailableBooks() {
         do {
-            let urls = try FileManager.default.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)
+            let urls = try fileManager.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)
             
             var books: [String] = []
             for url in urls {
                 // 必須是資料夾
                 var isDir: ObjCBool = false
-                if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                if fileManager.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
                     let name = url.lastPathComponent
                     // 檢查裡面是否有同名的 .csv
                     let csvPath = url.appendingPathComponent("\(name).\(extensionName)")
-                    if FileManager.default.fileExists(atPath: csvPath.path) {
+                    if fileManager.fileExists(atPath: csvPath.path) {
                         books.append(name)
                     }
                 }
@@ -119,12 +139,12 @@ class WordRepository {
         var shouldCreate = false
         
         // 檢查資料夾與檔案是否存在
-        if !FileManager.default.fileExists(atPath: fileURL.path) {
+        if !fileManager.fileExists(atPath: fileURL.path) {
             print("⚠️ Book \(name) not found at \(fileURL.path).")
             shouldCreate = true
         } else {
             // 檢查檔案大小
-            if let attr = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+            if let attr = try? fileManager.attributesOfItem(atPath: fileURL.path),
                let size = attr[.size] as? UInt64, size == 0 {
                 print("⚠️ Book \(name) is empty. Treating as missing.")
                 shouldCreate = true
@@ -144,7 +164,7 @@ class WordRepository {
         }
         
         currentBookName = name
-        UserDefaults.standard.set(name, forKey: "LastOpenBook")
+        userDefaults.set(name, forKey: "LastOpenBook")
         
         // 載入資料
         do {
@@ -171,9 +191,9 @@ class WordRepository {
         
         do {
             // 建立資料夾
-            try FileManager.default.createDirectory(at: mediaURL, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: mediaURL, withIntermediateDirectories: true)
             
-            if !FileManager.default.fileExists(atPath: fileURL.path) {
+            if !fileManager.fileExists(atPath: fileURL.path) {
                 let header = CSVHelper.header + "\n"
                 try header.write(to: fileURL, atomically: true, encoding: .utf8)
                 print("✅ Created new book structure: \(name)")
@@ -194,8 +214,8 @@ class WordRepository {
         
         let folderURL = storageDirectory.appendingPathComponent(name)
         do {
-            if FileManager.default.fileExists(atPath: folderURL.path) {
-                try FileManager.default.removeItem(at: folderURL)
+            if fileManager.fileExists(atPath: folderURL.path) {
+                try fileManager.removeItem(at: folderURL)
                 print("🗑️ Deleted book folder: \(name)")
                 
                 if currentBookName == name {
@@ -246,7 +266,7 @@ class WordRepository {
             try moveAllContent(from: oldDirectory, to: newURL)
             
             let bookmarkData = try newURL.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
-            UserDefaults.standard.set(bookmarkData, forKey: bookmarkKey)
+            userDefaults.set(bookmarkData, forKey: bookmarkKey)
             
             customStorageURL?.stopAccessingSecurityScopedResource()
             customStorageURL = newURL
@@ -261,8 +281,6 @@ class WordRepository {
     }
     
     private func moveAllContent(from source: URL, to destination: URL) throws {
-        let fileManager = FileManager.default
-        
         // 確保目標資料夾存在
         if !fileManager.fileExists(atPath: destination.path) {
             try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
@@ -297,7 +315,7 @@ class WordRepository {
     }
     
     private func restoreSecurityScopedAccess() {
-        guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else { return }
+        guard let data = userDefaults.data(forKey: bookmarkKey) else { return }
         var isStale = false
         do {
             let url = try URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale)
@@ -305,7 +323,7 @@ class WordRepository {
                 customStorageURL = url
                 if isStale {
                     let newData = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
-                    UserDefaults.standard.set(newData, forKey: bookmarkKey)
+                    userDefaults.set(newData, forKey: bookmarkKey)
                 }
             }
         } catch {
@@ -321,7 +339,7 @@ class WordRepository {
         
         // 2. Flat to Folder (New migration)
         do {
-            let files = try FileManager.default.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: nil)
+            let files = try fileManager.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: nil)
             let csvFiles = files.filter { $0.pathExtension == extensionName }
             
             for csvURL in csvFiles {
@@ -338,8 +356,8 @@ class WordRepository {
                 let mediaFolder = bookFolder.appendingPathComponent("media")
                 let targetCSV = bookFolder.appendingPathComponent("\(bookName).\(extensionName)")
                 
-                if !FileManager.default.fileExists(atPath: mediaFolder.path) {
-                    try FileManager.default.createDirectory(at: mediaFolder, withIntermediateDirectories: true, attributes: nil)
+                if !fileManager.fileExists(atPath: mediaFolder.path) {
+                    try fileManager.createDirectory(at: mediaFolder, withIntermediateDirectories: true, attributes: nil)
                 }
                 
                 // 讀取 CSV 內容以找出相關媒體檔案
@@ -375,7 +393,7 @@ class WordRepository {
                     try newContent.write(to: targetCSV, atomically: true, encoding: .utf8)
                     
                     // 移除舊 CSV
-                    try FileManager.default.removeItem(at: csvURL)
+                    try fileManager.removeItem(at: csvURL)
                     print("✅ Migrated \(bookName) to folder structure.")
                 }
             }
@@ -390,12 +408,12 @@ class WordRepository {
         let oldURL = storageDirectory.appendingPathComponent(name)
         let targetURL = folder.appendingPathComponent(name)
         
-        if FileManager.default.fileExists(atPath: oldURL.path) {
+        if fileManager.fileExists(atPath: oldURL.path) {
             do {
-                if FileManager.default.fileExists(atPath: targetURL.path) {
-                    try FileManager.default.removeItem(at: targetURL)
+                if fileManager.fileExists(atPath: targetURL.path) {
+                    try fileManager.removeItem(at: targetURL)
                 }
-                try FileManager.default.moveItem(at: oldURL, to: targetURL)
+                try fileManager.moveItem(at: oldURL, to: targetURL)
                 return true
             } catch {
                 print("❌ Failed to move media \(filename): \(error)")
@@ -409,7 +427,7 @@ class WordRepository {
     private func migrateJSONToCSV() {
         let jsonExtension = "json"
         do {
-            let files = try FileManager.default.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: nil)
+            let files = try fileManager.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: nil)
             let jsonFiles = files.filter { $0.pathExtension == jsonExtension }
             
             for url in jsonFiles {
@@ -424,7 +442,7 @@ class WordRepository {
                     let csvURL = storageDirectory.appendingPathComponent(name).appendingPathExtension("csv")
                     try csvString.write(to: csvURL, atomically: true, encoding: .utf8)
                     
-                    try FileManager.default.removeItem(at: url)
+                    try fileManager.removeItem(at: url)
                     print("✅ Migrated \(name) to CSV.")
                 }
             }
@@ -445,8 +463,8 @@ class WordRepository {
             let fileURL = currentMediaFolder.appendingPathComponent(fileName)
             
             do {
-                if !FileManager.default.fileExists(atPath: currentMediaFolder.path) {
-                    try FileManager.default.createDirectory(at: currentMediaFolder, withIntermediateDirectories: true)
+                if !fileManager.fileExists(atPath: currentMediaFolder.path) {
+                    try fileManager.createDirectory(at: currentMediaFolder, withIntermediateDirectories: true)
                 }
                 try data.write(to: fileURL)
                 newEntry.localImagePath = "media/\(fileName)"
@@ -475,7 +493,7 @@ class WordRepository {
         // Remove old
         if let oldPath = words[index].localImagePath {
             let oldURL = resolveFileURL(for: oldPath)
-            try? FileManager.default.removeItem(at: oldURL)
+            try? fileManager.removeItem(at: oldURL)
         }
         
         // Save new
@@ -483,8 +501,8 @@ class WordRepository {
         let newURL = currentMediaFolder.appendingPathComponent(newFileName)
         
         do {
-             if !FileManager.default.fileExists(atPath: currentMediaFolder.path) {
-                try FileManager.default.createDirectory(at: currentMediaFolder, withIntermediateDirectories: true)
+             if !fileManager.fileExists(atPath: currentMediaFolder.path) {
+                try fileManager.createDirectory(at: currentMediaFolder, withIntermediateDirectories: true)
             }
             try imageData.write(to: newURL)
             words[index].localImagePath = "media/\(newFileName)"
@@ -515,8 +533,8 @@ class WordRepository {
     /// Import Library from folder
     func importLibrary(from folderURL: URL) throws {
         // Ensure media folder exists
-        if !FileManager.default.fileExists(atPath: currentMediaFolder.path) {
-            try FileManager.default.createDirectory(at: currentMediaFolder, withIntermediateDirectories: true)
+        if !fileManager.fileExists(atPath: currentMediaFolder.path) {
+            try fileManager.createDirectory(at: currentMediaFolder, withIntermediateDirectories: true)
         }
         
         // Import to media folder
@@ -582,7 +600,7 @@ class WordRepository {
         for index in offsets {
             if let imgPath = words[index].localImagePath {
                 let url = resolveFileURL(for: imgPath)
-                try? FileManager.default.removeItem(at: url)
+                try? fileManager.removeItem(at: url)
             }
             // Optional: Also delete sounds
         }

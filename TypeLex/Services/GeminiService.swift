@@ -14,7 +14,7 @@ class GeminiService {
     private let textModel = "gemini-2.5-flash-lite" 
     
     private var apiKey: String? {
-        return KeychainHelper.shared.read()
+        return try? KeychainHelper.shared.read()
     }
     
     func generateWordData(word: String) async throws -> (WordEntry, Data?) {

@@ -11,8 +11,6 @@ struct ImportView: View {
     @State private var alertMessage: String?
     @State private var showAlert: Bool = false
     
-    private let geminiService = GeminiService()
-    
     var body: some View {
         VStack(spacing: 20) {
             headerSection
@@ -173,12 +171,6 @@ private extension ImportView {
     }
     
     func startImport() {
-        if KeychainHelper.shared.read() == nil {
-            alertMessage = "API Key not found. Please set your Google Gemini API Key in Settings."
-            showAlert = true
-            return
-        }
-
         let words = inputText
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

@@ -25,7 +25,7 @@ class ImageService {
         }
         
         // 2. Fallback to Stability AI if Key exists
-        if let stabilityKey = KeychainHelper.shared.read(for: KeychainHelper.stabilityKey), !stabilityKey.isEmpty {
+        if let stabilityKey = try? KeychainHelper.shared.read(for: KeychainHelper.stabilityKey), !stabilityKey.isEmpty {
             do {
                 print("🎨 Attempting fallback generation with Stability AI...")
                 return try await generateWithStability(context: context, apiKey: stabilityKey)

@@ -65,7 +65,7 @@ Documents/
 
 1.  **設定 API Key (選填)**：
     *   點擊右上角 **⚙️ (Settings)**，輸入 Google Gemini 或 Stability AI 密鑰。
-    *   **註**：若不填入密鑰，系統會自動使用免費的 **Pollinations AI** 進行文字與圖片生成。
+    *   **註**：若不填入密鑰，系統會自動使用免費的 **Pollinations AI** 進行文字與圖片生成；清空後按 `Save` 即可移除已儲存的 key。
 
 2.  **載入單字庫**：
     *   初次使用可點擊 **Load @4000 Essential Words** 載入專案內建範例。

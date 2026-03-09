@@ -8,6 +8,7 @@
 
 /* Begin PBXFileReference section */
 		706840022F17F7E900DC03C3 /* TypeLex.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TypeLex.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		706840102F18000000DC03C3 /* TypeLexTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TypeLexTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +17,22 @@
 			path = TypeLex;
 			sourceTree = "<group>";
 		};
+		706840112F18000000DC03C3 /* TypeLexTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TypeLexTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		70683FFF2F17F7E900DC03C3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		706840122F18000000DC03C3 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +46,7 @@
 			isa = PBXGroup;
 			children = (
 				706840042F17F7E900DC03C3 /* TypeLex */,
+				706840112F18000000DC03C3 /* TypeLexTests */,
 				706840032F17F7E900DC03C3 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +55,7 @@
 			isa = PBXGroup;
 			children = (
 				706840022F17F7E900DC03C3 /* TypeLex.app */,
+				706840102F18000000DC03C3 /* TypeLexTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,7 +85,40 @@
 			productReference = 706840022F17F7E900DC03C3 /* TypeLex.app */;
 			productType = "com.apple.product-type.application";
 		};
+		706840132F18000000DC03C3 /* TypeLexTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7068401A2F18000000DC03C3 /* Build configuration list for PBXNativeTarget "TypeLexTests" */;
+			buildPhases = (
+				706840152F18000000DC03C3 /* Sources */,
+				706840122F18000000DC03C3 /* Frameworks */,
+				706840142F18000000DC03C3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				706840172F18000000DC03C3 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				706840112F18000000DC03C3 /* TypeLexTests */,
+			);
+			name = TypeLexTests;
+			packageProductDependencies = (
+			);
+			productName = TypeLexTests;
+			productReference = 706840102F18000000DC03C3 /* TypeLexTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		706840162F18000000DC03C3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 70683FFA2F17F7E900DC03C3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 706840012F17F7E900DC03C3;
+			remoteInfo = TypeLex;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXProject section */
 		70683FFA2F17F7E900DC03C3 /* Project object */ = {
@@ -82,6 +130,10 @@
 				TargetAttributes = {
 					706840012F17F7E900DC03C3 = {
 						CreatedOnToolsVersion = 26.2;
+					};
+					706840132F18000000DC03C3 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 706840012F17F7E900DC03C3;
 					};
 				};
 			};
@@ -100,12 +152,20 @@
 			projectRoot = "";
 			targets = (
 				706840012F17F7E900DC03C3 /* TypeLex */,
+				706840132F18000000DC03C3 /* TypeLexTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		706840002F17F7E900DC03C3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		706840142F18000000DC03C3 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +182,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		706840152F18000000DC03C3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		706840172F18000000DC03C3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 706840012F17F7E900DC03C3 /* TypeLex */;
+			targetProxy = 706840162F18000000DC03C3 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		7068400B2F17F7E900DC03C3 /* Debug */ = {
@@ -329,6 +404,52 @@
 			};
 			name = Release;
 		};
+		706840182F18000000DC03C3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3VJ3BFTTY8;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.7;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cocoaswifty.TypeLexTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = TypeLex;
+			};
+			name = Debug;
+		};
+		706840192F18000000DC03C3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3VJ3BFTTY8;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.7;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cocoaswifty.TypeLexTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = TypeLex;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -346,6 +467,15 @@
 			buildConfigurations = (
 				7068400E2F17F7E900DC03C3 /* Debug */,
 				7068400F2F17F7E900DC03C3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7068401A2F18000000DC03C3 /* Build configuration list for PBXNativeTarget "TypeLexTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				706840182F18000000DC03C3 /* Debug */,
+				706840192F18000000DC03C3 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
